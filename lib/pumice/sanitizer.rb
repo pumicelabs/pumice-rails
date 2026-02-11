@@ -172,7 +172,7 @@ module Pumice
       def execute_default_verification(message)
         unless bulk_operation
           raise ArgumentError,
-            "#{name}: verify without a block requires a bulk operation (truncate!, delete_all, destroy_all)"
+            "#{name}: verify_all without a block requires a bulk operation (truncate!, delete_all, destroy_all)"
         end
 
         default_block = Pumice.config.default_verification.call(model_class, bulk_operation)

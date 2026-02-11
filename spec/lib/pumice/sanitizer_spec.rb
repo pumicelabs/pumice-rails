@@ -430,13 +430,13 @@ RSpec.describe Pumice::Sanitizer do
   describe 'verification' do
     let!(:user) { create(:user, email: 'alice@real.com') }
 
-    describe 'verify block' do
+    describe 'verify_all block' do
       it 'raises VerificationError when block returns false' do
         sanitizer = create_sanitizer do
           sanitizes :users
           scrub(:email) { 'fake@example.test' }
           keep_undefined_columns!
-          verify('Emails should be scrubbed') { where(email: 'alice@real.com').none? }
+          verify_all('Emails should be scrubbed') { where(email: 'alice@real.com').none? }
 
           def self.name
             'VerifyBlockTestSanitizer'
@@ -452,7 +452,7 @@ RSpec.describe Pumice::Sanitizer do
           sanitizes :users
           scrub(:email) { raw_email }  # No-op: returns original value
           keep_undefined_columns!
-          verify('No real emails') { where(email: 'alice@real.com').none? }
+          verify_all('No real emails') { where(email: 'alice@real.com').none? }
 
           def self.name
             'FailedVerifyTestSanitizer'

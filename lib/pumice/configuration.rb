@@ -22,7 +22,7 @@ module Pumice
     attr_writer :soft_scrubbing
 
     # Default verification policy for bulk operations.
-    # Used when `verify` is called without a block.
+    # Used when `verify_all` is called without a block.
     # Receives (model_class, bulk_operation) and returns a verification proc.
     # The bulk_operation hash contains :type (:truncate, :delete, :destroy) and :scope (optional block).
     DEFAULT_VERIFICATION_POLICY = lambda do |_model_class, bulk_operation|

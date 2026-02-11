@@ -115,7 +115,7 @@ module Pumice
     #   truncate!(verify: true)  # verifies count.zero? after truncation
     def truncate!(verify: false)
       @bulk_operation = { type: :truncate }
-      self.verify if verify
+      self.verify_all if verify
     end
 
     # DELETE with optional scope - fast, no callbacks/associations
@@ -125,7 +125,7 @@ module Pumice
     #   delete_all(verify: true) { where(...) }       # verifies scope.none? after deletion
     def delete_all(verify: false, &scope)
       @bulk_operation = { type: :delete, scope: scope }
-      self.verify if verify
+      self.verify_all if verify
     end
 
     # DESTROY with optional scope - runs callbacks, handles associations
@@ -135,7 +135,7 @@ module Pumice
     #   destroy_all(verify: true) { where(...) }      # verifies scope.none? after destruction
     def destroy_all(verify: false, &scope)
       @bulk_operation = { type: :destroy, scope: scope }
-      self.verify if verify
+      self.verify_all if verify
     end
 
     def bulk_operation
@@ -148,12 +148,12 @@ module Pumice
     # Verify after all records are processed (bulk or record-by-record)
     # Block executes in model scope and should return truthy for success.
     # Examples:
-    #   verify                                          # uses default for bulk ops
-    #   verify { where(item_type: SENSITIVE_TYPES).none? }
-    #   verify "No sensitive data should remain" do
+    #   verify_all                                          # uses default for bulk ops
+    #   verify_all { where(item_type: SENSITIVE_TYPES).none? }
+    #   verify_all "No sensitive data should remain" do
     #     where(pii_column: true).count.zero?
     #   end
-    def verify(message = nil, &block)
+    def verify_all(message = nil, &block)
       @verification = if block
                         { message: message, block: block }
                       else

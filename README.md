@@ -8,13 +8,13 @@ Database PII sanitization for Rails. Declarative scrubbing, pruning, and safe ex
 
 - [Quick Start](#quick-start)
 - [Sanitizer DSL](#sanitizer-dsl)
+- [Verification](#verification)
 - [Helpers](#helpers)
 - [Rake Tasks](#rake-tasks)
 - [Configuration](#configuration)
 - [Safe Scrub](#safe-scrub)
 - [Pruning](#pruning)
 - [Soft Scrubbing](#soft-scrubbing)
-- [Verification](#verification)
 - [Testing](#testing)
 - [Materialized Views](#materialized-views)
 - [Gotchas](#gotchas)
@@ -222,6 +222,83 @@ UserSanitizer.sanitize(user, :email)  # returns single scrubbed value
 UserSanitizer.scrub!(user)            # persists all scrubbed values
 UserSanitizer.scrub!(user, :email)    # persists single scrubbed value
 UserSanitizer.scrub_all!              # batch: prune → scrub → verify
+```
+
+---
+
+## Verification
+
+Post-operation checks declared inside a sanitizer definition. All verification raises `Pumice::VerificationError` on failure and is skipped during dry runs.
+
+### Table-level
+
+```ruby
+class UserSanitizer < Pumice::Sanitizer
+  sanitizes :users
+  scrub(:email) { Faker::Internet.email }
+  keep :id, :created_at, :updated_at
+
+  verify_all "No real emails should remain" do
+    where("email LIKE '%@gmail.com'").none?
+  end
+end
+```
+
+The `verify_all` block runs in model scope (`User.instance_exec`). Return truthy for success.
+
+### Per-record
+
+```ruby
+class UserSanitizer < Pumice::Sanitizer
+  sanitizes :users
+  scrub(:email) { Faker::Internet.email }
+  keep :id, :created_at, :updated_at
+
+  verify_each "Email should be scrubbed" do |record|
+    !record.email.match?(/gmail|yahoo|hotmail/)
+  end
+end
+```
+
+### Inline (bulk operations)
+
+Bulk operations accept a `verify: true` option that uses a default check after execution:
+
+```ruby
+class AuditLogSanitizer < Pumice::Sanitizer
+  sanitizes :audit_logs
+  truncate!(verify: true)                              # verifies count.zero?
+end
+
+class VersionSanitizer < Pumice::Sanitizer
+  sanitizes :versions
+  delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
+end
+```
+
+### Default verification for bulk operations
+
+| Operation | Default check |
+|---|---|
+| `truncate!` | `count.zero?` |
+| `delete_all` (no scope) | `count.zero?` |
+| `delete_all { scope }` | `scope.none?` |
+| `destroy_all` (no scope) | `count.zero?` |
+| `destroy_all { scope }` | `scope.none?` |
+
+Call `verify_all` without a block on a bulk sanitizer to use the default. Calling `verify_all` without a block on a non-bulk sanitizer raises `ArgumentError`.
+
+### Custom verification policy
+
+```ruby
+Pumice.configure do |config|
+  config.default_verification = ->(model_class, bulk_operation) {
+    case bulk_operation[:type]
+    when :truncate then -> { count.zero? }
+    when :delete, :destroy then bulk_operation[:scope] || -> { count.zero? }
+    end
+  }
+end
 ```
 
 ---
@@ -639,83 +716,6 @@ class User < ApplicationRecord
       @attributes.fetch_value(attr_name.to_s)
     end
   end
-end
-```
-
----
-
-## Verification
-
-Post-operation checks declared inside a sanitizer definition. All verification raises `Pumice::VerificationError` on failure and is skipped during dry runs.
-
-### Table-level
-
-```ruby
-class UserSanitizer < Pumice::Sanitizer
-  sanitizes :users
-  scrub(:email) { Faker::Internet.email }
-  keep :id, :created_at, :updated_at
-
-  verify "No real emails should remain" do
-    where("email LIKE '%@gmail.com'").none?
-  end
-end
-```
-
-The `verify` block runs in model scope (`User.instance_exec`). Return truthy for success.
-
-### Per-record
-
-```ruby
-class UserSanitizer < Pumice::Sanitizer
-  sanitizes :users
-  scrub(:email) { Faker::Internet.email }
-  keep :id, :created_at, :updated_at
-
-  verify_each "Email should be scrubbed" do |record|
-    !record.email.match?(/gmail|yahoo|hotmail/)
-  end
-end
-```
-
-### Inline (bulk operations)
-
-Bulk operations accept a `verify: true` option that uses a default check after execution:
-
-```ruby
-class AuditLogSanitizer < Pumice::Sanitizer
-  sanitizes :audit_logs
-  truncate!(verify: true)                              # verifies count.zero?
-end
-
-class VersionSanitizer < Pumice::Sanitizer
-  sanitizes :versions
-  delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
-end
-```
-
-### Default verification for bulk operations
-
-| Operation | Default check |
-|---|---|
-| `truncate!` | `count.zero?` |
-| `delete_all` (no scope) | `count.zero?` |
-| `delete_all { scope }` | `scope.none?` |
-| `destroy_all` (no scope) | `count.zero?` |
-| `destroy_all { scope }` | `scope.none?` |
-
-Call `verify` without a block on a bulk sanitizer to use the default. Calling `verify` without a block on a non-bulk sanitizer raises `ArgumentError`.
-
-### Custom verification policy
-
-```ruby
-Pumice.configure do |config|
-  config.default_verification = ->(model_class, bulk_operation) {
-    case bulk_operation[:type]
-    when :truncate then -> { count.zero? }
-    when :delete, :destroy then bulk_operation[:scope] || -> { count.zero? }
-    end
-  }
 end
 ```
 
