@@ -865,9 +865,9 @@ Both soft scrubbing helpers restore original config after the block, even on err
 ```ruby
 # Matcher examples
 RSpec.describe UserSanitizer, type: :sanitizer do
-  it { is_expected.to have_scrubbed(:email) }
-  it { is_expected.to have_scrubbed(:first_name) }
-  it { is_expected.to have_kept(:role) }
+  it { expect(described_class).to have_scrubbed(:email) }
+  it { expect(described_class).to have_scrubbed(:first_name) }
+  it { expect(described_class).to have_kept(:role) }
 end
 ```
 
