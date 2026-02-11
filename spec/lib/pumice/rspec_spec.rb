@@ -12,7 +12,7 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
 
   describe '#with_soft_scrubbing' do
     it 'enables soft scrubbing within the block' do
-      with_soft_scrubbing(viewer: nil, scrub_if: ->(_record, _viewer) { true }) do
+      with_soft_scrubbing(viewer: nil, if: ->(_record, _viewer) { true }) do
         expect(Pumice.soft_scrubbing?).to be true
       end
     end
@@ -20,7 +20,7 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
     it 'restores original config after the block' do
       expect(Pumice.soft_scrubbing?).to be false
 
-      with_soft_scrubbing(viewer: nil, scrub_if: ->(_record, _viewer) { true }) do
+      with_soft_scrubbing(viewer: nil, if: ->(_record, _viewer) { true }) do
         # inside block
       end
 
@@ -29,7 +29,7 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
 
     it 'restores config even when the block raises' do
       expect {
-        with_soft_scrubbing(viewer: nil, scrub_if: ->(_record, _viewer) { true }) do
+        with_soft_scrubbing(viewer: nil, if: ->(_record, _viewer) { true }) do
           raise 'boom'
         end
       }.to raise_error(RuntimeError, 'boom')
@@ -38,7 +38,7 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
     end
 
     it 'accepts scrub_unless option' do
-      with_soft_scrubbing(viewer: nil, scrub_unless: ->(_record, _viewer) { false }) do
+      with_soft_scrubbing(viewer: nil, unless: ->(_record, _viewer) { false }) do
         expect(Pumice.soft_scrubbing?).to be true
       end
     end

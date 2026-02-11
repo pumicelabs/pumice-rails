@@ -829,13 +829,13 @@ RSpec.describe 'User soft scrubbing', type: :sanitizer do
   let(:regular) { create(:user) }
 
   it 'scrubs for non-admins' do
-    with_soft_scrubbing(viewer: regular, scrub_if: ->(r, v) { !v.admin? }) do
+    with_soft_scrubbing(viewer: regular, if: ->(r, v) { !v.admin? }) do
       expect(user.email).to match(/user_\d+@example\.test/)
     end
   end
 
   it 'shows real data to admins' do
-    with_soft_scrubbing(viewer: admin, scrub_if: ->(r, v) { !v.admin? }) do
+    with_soft_scrubbing(viewer: admin, if: ->(r, v) { !v.admin? }) do
       expect(user.email).to eq('real@gmail.com')
     end
   end
@@ -846,7 +846,7 @@ end
 
 | Helper | Use |
 |---|---|
-| `with_soft_scrubbing(viewer:, scrub_if:, scrub_unless:)` | Enable soft scrubbing for a block |
+| `with_soft_scrubbing(viewer:, if:, unless:)` | Enable soft scrubbing for a block |
 | `without_soft_scrubbing { ... }` | Disable soft scrubbing for a block |
 | `have_scrubbed(:attr)` | Assert a sanitizer defines a scrub rule for `:attr` |
 | `have_kept(:attr)` | Assert a sanitizer marks `:attr` as kept |

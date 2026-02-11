@@ -7,14 +7,14 @@ module Pumice
     module SanitizerHelpers
       # Enable soft scrubbing for a block with optional viewer context.
       #
-      #   with_soft_scrubbing(viewer: admin, scrub_if: ->(r, v) { !v.admin? }) do
+      #   with_soft_scrubbing(viewer: admin, if: ->(r, v) { !v.admin? }) do
       #     expect(user.email).to eq('real@gmail.com')
       #   end
-      def with_soft_scrubbing(viewer: nil, scrub_if: nil, scrub_unless: nil, &block)
+      def with_soft_scrubbing(viewer: nil, if: nil, unless: nil, &block)
         original = Pumice.config.instance_variable_get(:@soft_scrubbing)
         config_hash = {}
-        config_hash[:if] = scrub_if if scrub_if
-        config_hash[:unless] = scrub_unless if scrub_unless
+        config_hash[:if] = binding.local_variable_get(:if) if binding.local_variable_get(:if)
+        config_hash[:unless] = binding.local_variable_get(:unless) if binding.local_variable_get(:unless)
         Pumice.configure { |c| c.soft_scrubbing = config_hash }
         Pumice.with_soft_scrubbing_context(viewer, &block)
       ensure
