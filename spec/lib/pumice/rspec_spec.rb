@@ -8,8 +8,6 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
 
   before { Pumice.reset! }
 
-  let(:user) { create(:user, email: 'real@gmail.com', first_name: 'Alice') }
-
   describe '#with_soft_scrubbing' do
     it 'enables soft scrubbing within the block' do
       with_soft_scrubbing(viewer: nil, if: ->(_record, _viewer) { true }) do
@@ -37,7 +35,7 @@ RSpec.describe Pumice::RSpec::SanitizerHelpers do
       expect(Pumice.soft_scrubbing?).to be false
     end
 
-    it 'accepts scrub_unless option' do
+    it 'accepts unless option' do
       with_soft_scrubbing(viewer: nil, unless: ->(_record, _viewer) { false }) do
         expect(Pumice.soft_scrubbing?).to be true
       end
