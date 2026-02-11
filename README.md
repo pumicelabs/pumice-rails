@@ -158,9 +158,32 @@ end
 | `UserSanitizer` | `users` | - |
 | `TutorSessionFeedbackSanitizer` | `tutor_session_feedbacks` | `feedback` |
 
+### `prune` (pre-step, not terminal)
+
+Removes matching records **before** record-by-record scrubbing. Survivors get scrubbed. Use when you have records worth keeping but need to reduce the dataset first.
+
+```ruby
+class EmailLogSanitizer < Pumice::Sanitizer
+  prune { where(created_at: ..1.year.ago) }  # delete old logs
+
+  scrub(:email) { fake_email(record) }        # scrub the rest
+  scrub(:body) { |value| match_length(value, use: :paragraph) }
+  keep :user_id, :status
+end
+```
+
+Convenience shorthands:
+
+```ruby
+prune_older_than 1.year
+prune_older_than 90.days, column: :updated_at
+prune_older_than "2024-01-01"
+prune_newer_than 30.days
+```
+
 ### Bulk operations (terminal)
 
-For tables where you want records **deleted**, not scrubbed. No `scrub`/`keep` declarations needed. No scrubbing runs after.
+For tables where you want records **gone**, not scrubbed. The entire sanitizer is just the deletion — no `scrub`/`keep` declarations needed, and no scrubbing runs after. Use `destroy_all` over `delete_all` when you need ActiveRecord callbacks (e.g., `dependent: :destroy` associations).
 
 ```ruby
 # Wipe entire table (fastest, resets auto-increment)
@@ -180,37 +203,16 @@ class AttachmentSanitizer < Pumice::Sanitizer
 end
 ```
 
-### `prune` (pre-step, not terminal)
-
-Removes matching records **before** record-by-record scrubbing. Survivors get scrubbed.
-
-```ruby
-class EmailLogSanitizer < Pumice::Sanitizer
-  prune { where(created_at: ..1.year.ago) }
-
-  scrub(:email) { fake_email(record) }
-  scrub(:body) { |value| match_length(value, use: :paragraph) }
-  keep :user_id, :status
-end
-```
-
-Convenience shorthands:
-
-```ruby
-prune_older_than 1.year
-prune_older_than 90.days, column: :updated_at
-prune_older_than "2024-01-01"
-prune_newer_than 30.days
-```
-
 ### When to use what
+
+The key distinction: `prune` is a pre-step that scrubs survivors, while bulk operations are terminal — deletion is the entire sanitizer.
 
 | Goal | DSL | Scrubs survivors? |
 |---|---|:---:|
-| Delete old records, scrub the rest | `prune` / `prune_older_than` | Yes |
+| Delete old records, scrub the rest | `prune` / `prune_[older\|newer]_than` | Yes |
 | Wipe entire table | `truncate!` | No |
-| Delete matching records (fast) | `delete_all { scope }` | No |
-| Destroy with callbacks | `destroy_all { scope }` | No |
+| Delete matching records (fast, no callbacks) | `delete_all { scope }` | No |
+| Delete with callbacks/associations | `destroy_all { scope }` | No |
 
 ### Programmatic usage
 
@@ -265,6 +267,7 @@ Generates text approximating the original value's length. Respects column constr
 ```ruby
 scrub(:bio) { |value| match_length(value, use: :paragraph) }
 scrub(:code) { |value| match_length(value, use: :characters) }  # random alphanumeric
+scrub(:title) { |value| match_length(value, use: -> { Faker::Book.title }) }  # custom generator
 ```
 
 | Generator | Best for |
@@ -273,6 +276,7 @@ scrub(:code) { |value| match_length(value, use: :characters) }  # random alphanu
 | `:paragraph` | Long-form content |
 | `:word` | Short fields, names |
 | `:characters` | Codes, tokens |
+| `-> { ... }` | Any custom Faker or logic |
 
 ### `fake_json`
 
