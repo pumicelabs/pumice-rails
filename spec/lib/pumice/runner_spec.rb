@@ -10,7 +10,7 @@ RSpec.describe Pumice::Runner do
   # Minimal sanitizer for testing registration and lookup behavior
   let(:test_sanitizer) do
     Class.new(Pumice::Sanitizer) do
-      sanitizes :user
+      sanitizes :users
       friendly_name 'test_users'
       keep_undefined_columns!
 

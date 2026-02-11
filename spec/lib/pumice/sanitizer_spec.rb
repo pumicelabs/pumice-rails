@@ -17,7 +17,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { fake_email(record) }
         scrub(:first_name) { 'Fake' }
         scrub(:last_name) { 'User' }
@@ -57,7 +57,7 @@ RSpec.describe Pumice::Sanitizer do
 
       it 'returns original value for attributes without a scrub block' do
         sanitizer_with_gap = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.test' }
           keep_undefined_columns!
         end
@@ -82,7 +82,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:first_name) { 'Scrubbed' }
         scrub(:last_name) { 'Name' }
         keep_undefined_columns!
@@ -138,7 +138,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:first_name) { 'Scrubbed' }
         scrub(:last_name) { 'Name' }
         scrub(:email) { fake_email(record) }
@@ -162,7 +162,7 @@ RSpec.describe Pumice::Sanitizer do
     context 'in strict mode with undefined columns' do
       it 'raises UndefinedAttributeError' do
         strict_sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.test' }
           # Missing many columns
 
@@ -181,7 +181,7 @@ RSpec.describe Pumice::Sanitizer do
 
       it 'runs without raising for undefined columns' do
         partial_sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { fake_email(record) }
 
           def self.name
@@ -199,7 +199,7 @@ RSpec.describe Pumice::Sanitizer do
       it 'does not raise and logs errors' do
         call_count = 0
         error_sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:first_name) do |val|
             call_count += 1
             raise 'boom' if call_count == 1
@@ -222,7 +222,7 @@ RSpec.describe Pumice::Sanitizer do
     context 'with continue_on_error disabled (default)' do
       it 're-raises individual record errors' do
         error_sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:first_name) { raise 'boom' }
           keep_undefined_columns!
 
@@ -240,7 +240,7 @@ RSpec.describe Pumice::Sanitizer do
         allow(Pumice::Logger).to receive(:log_progress)
 
         missing_model_sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.test' }
           keep_undefined_columns!
 
@@ -265,7 +265,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { fake_email(record) }
         keep_undefined_columns!
       end
@@ -286,7 +286,7 @@ RSpec.describe Pumice::Sanitizer do
     describe 'truncate!' do
       let(:sanitizer) do
         create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           truncate!
 
           def self.name
@@ -324,7 +324,7 @@ RSpec.describe Pumice::Sanitizer do
     describe 'delete_all' do
       let(:sanitizer) do
         create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           delete_all
 
           def self.name
@@ -343,7 +343,7 @@ RSpec.describe Pumice::Sanitizer do
         let(:sanitizer_with_scope) do
           user_id = user1.id
           create_sanitizer do
-            sanitizes :user
+            sanitizes :users
             delete_all { where(id: user_id) }
 
             def self.name
@@ -364,7 +364,7 @@ RSpec.describe Pumice::Sanitizer do
     describe 'destroy_all' do
       let(:sanitizer) do
         create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           destroy_all
 
           def self.name
@@ -387,7 +387,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         prune { where(created_at: ..1.year.ago) }
         scrub(:first_name) { 'Scrubbed' }
         keep_undefined_columns!
@@ -433,7 +433,7 @@ RSpec.describe Pumice::Sanitizer do
     describe 'verify block' do
       it 'raises VerificationError when block returns false' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.test' }
           keep_undefined_columns!
           verify('Emails should be scrubbed') { where(email: 'alice@real.com').none? }
@@ -449,7 +449,7 @@ RSpec.describe Pumice::Sanitizer do
 
       it 'raises VerificationError when verification fails' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { raw_email }  # No-op: returns original value
           keep_undefined_columns!
           verify('No real emails') { where(email: 'alice@real.com').none? }
@@ -467,7 +467,7 @@ RSpec.describe Pumice::Sanitizer do
     describe 'verify_each block' do
       it 'raises VerificationError when per-record check fails' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { raw_email }  # No-op
           keep_undefined_columns!
           verify_each('Email must not be real') { |r| !r.email.include?('@real.com') }
@@ -483,7 +483,7 @@ RSpec.describe Pumice::Sanitizer do
 
       it 'passes when per-record check succeeds' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { fake_email(record) }
           keep_undefined_columns!
           verify_each { |r| !r.email.include?('@real.com') }
@@ -503,7 +503,7 @@ RSpec.describe Pumice::Sanitizer do
 
     let(:sanitizer_class) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:first_name) { 'Fake' }
         scrub(:last_name) { first_name }
       end

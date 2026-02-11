@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class <%= class_name %>Sanitizer < Pumice::Sanitizer
+  sanitizes :<%= plural_file_name %>
+
 <% if has_pii_columns? -%>
   # PII - scrub with fake data
 <% pii_columns.each do |column| -%>

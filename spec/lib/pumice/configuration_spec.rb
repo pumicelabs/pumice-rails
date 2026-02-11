@@ -190,7 +190,7 @@ RSpec.describe Pumice do
   describe 'Sanitizer Registry' do
     let(:test_sanitizer_class) do
       Class.new(Pumice::Sanitizer) do
-        sanitizes :user
+        sanitizes :users
 
         def self.name
           'InlineTestSanitizer'
@@ -486,7 +486,7 @@ RSpec.describe Pumice do
   describe '.lint!' do
     let(:complete_sanitizer) do
       Class.new(Pumice::Sanitizer) do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'test@example.com' }
         scrub(:first_name) { 'Test' }
         scrub(:last_name) { 'User' }

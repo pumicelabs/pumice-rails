@@ -6,11 +6,11 @@ module Pumice
   module DSL
     PROTECTED_COLUMNS = %w[id created_at updated_at].freeze
 
-    # Explicitly declare the model this sanitizer handles
-    # Examples:
-    #   sanitizes :user                      # infers User
-    #   sanitizes :user, class_name: 'User'  # explicit string
-    #   sanitizes :user, class_name: User    # explicit constant
+    # Explicitly declare the model this sanitizer handles.
+    # Uses pluralized form (like has_many):
+    #   sanitizes :users                       # infers User
+    #   sanitizes :admin_users, class_name: 'Admin::User'  # namespaced model
+    #   sanitizes :users, class_name: User     # explicit constant
     def sanitizes(model_name, class_name: model_name.to_s.classify)
       @model_class = if class_name.is_a?(String)
                        class_name.constantize
@@ -238,7 +238,7 @@ module Pumice
       model_name = name.delete_suffix('Sanitizer')
       model_name.constantize
     rescue NameError
-      raise "Could not infer model for #{name}. Use `sanitizes :model_name` to specify explicitly."
+      raise "Could not infer model for #{name}. Use `sanitizes :model_names` to specify explicitly."
     end
 
     def infer_friendly_name

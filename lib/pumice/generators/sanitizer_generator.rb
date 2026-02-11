@@ -15,6 +15,10 @@ module Pumice
 
       private
 
+      def plural_file_name
+        file_name.pluralize
+      end
+
       def model_class
         @model_class ||= class_name.constantize
       rescue NameError

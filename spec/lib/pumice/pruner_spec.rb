@@ -292,7 +292,7 @@ RSpec.describe Pumice::Pruner do
   describe 'conflict detection' do
     let(:sanitizer_with_prune) do
       Class.new(Pumice::Sanitizer) do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         prune { where(created_at: ..1.year.ago) }
         keep_undefined_columns!
@@ -371,7 +371,7 @@ RSpec.describe Pumice::Pruner do
     context 'when no conflict exists' do
       let(:sanitizer_without_prune) do
         Class.new(Pumice::Sanitizer) do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.com' }
           keep_undefined_columns!
 

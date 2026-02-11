@@ -15,7 +15,7 @@ RSpec.describe Pumice::DSL do
   describe 'scrub' do
     it 'registers a column with a block' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
       end
 
@@ -25,7 +25,7 @@ RSpec.describe Pumice::DSL do
 
     it 'allows multiple scrub declarations' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         scrub(:first_name) { 'John' }
         scrub(:last_name) { 'Doe' }
@@ -38,7 +38,7 @@ RSpec.describe Pumice::DSL do
   describe 'keep' do
     it 'marks columns as safe to keep unchanged' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         keep :status, :roles
       end
 
@@ -47,7 +47,7 @@ RSpec.describe Pumice::DSL do
 
     it 'accumulates across multiple keep calls' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         keep :status
         keep :roles, :archived
       end
@@ -57,7 +57,7 @@ RSpec.describe Pumice::DSL do
 
     it 'converts column names to symbols' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         keep 'status', :roles
       end
 
@@ -68,7 +68,7 @@ RSpec.describe Pumice::DSL do
   describe 'sanitizes' do
     it 'binds to a model by inferring class from symbol' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
       end
 
       expect(sanitizer.model_class).to eq(User)
@@ -76,7 +76,7 @@ RSpec.describe Pumice::DSL do
 
     it 'accepts explicit class_name as string' do
       sanitizer = create_sanitizer do
-        sanitizes :account, class_name: 'User'
+        sanitizes :accounts, class_name: 'User'
       end
 
       expect(sanitizer.model_class).to eq(User)
@@ -84,7 +84,7 @@ RSpec.describe Pumice::DSL do
 
     it 'accepts explicit class_name as constant' do
       sanitizer = create_sanitizer do
-        sanitizes :account, class_name: User
+        sanitizes :accounts, class_name: User
       end
 
       expect(sanitizer.model_class).to eq(User)
@@ -141,7 +141,7 @@ RSpec.describe Pumice::DSL do
   describe 'column analysis' do
     let(:sanitizer) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         scrub(:first_name) { 'John' }
         keep :status, :roles
@@ -200,7 +200,7 @@ RSpec.describe Pumice::DSL do
     describe 'stale_columns' do
       it 'returns columns defined but not in model' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:nonexistent_column) { 'value' }
           keep :another_fake_column
         end
@@ -210,7 +210,7 @@ RSpec.describe Pumice::DSL do
 
       it 'returns empty array when all columns exist' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.com' }
           keep :roles  # Use an actual User column
         end
@@ -223,7 +223,7 @@ RSpec.describe Pumice::DSL do
   describe 'lint!' do
     it 'returns empty array when fully covered' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         keep_undefined_columns!
       end
 
@@ -232,7 +232,7 @@ RSpec.describe Pumice::DSL do
 
     it 'reports undefined columns' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'test@example.com' }
         # Missing many columns
       end
@@ -243,7 +243,7 @@ RSpec.describe Pumice::DSL do
 
     it 'reports stale columns' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:nonexistent) { 'value' }
         keep_undefined_columns!
       end
@@ -265,7 +265,7 @@ RSpec.describe Pumice::DSL do
   describe 'keep_undefined_columns!' do
     it 'marks all undefined columns as kept' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'test@example.com' }
         keep_undefined_columns!
       end
@@ -277,7 +277,7 @@ RSpec.describe Pumice::DSL do
       Pumice.config.allow_keep_undefined_columns = false
 
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
       end
 
       expect { sanitizer.keep_undefined_columns! }.to raise_error(/disabled/)
@@ -287,7 +287,7 @@ RSpec.describe Pumice::DSL do
   describe 'PROTECTED_COLUMNS' do
     it 'excludes id, created_at, updated_at from undefined' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         keep_undefined_columns!
       end
 
@@ -299,7 +299,7 @@ RSpec.describe Pumice::DSL do
   describe 'prune' do
     it 'stores a prune operation with a scope block' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         prune { where(created_at: ..1.year.ago) }
       end
@@ -311,7 +311,7 @@ RSpec.describe Pumice::DSL do
     it 'raises ArgumentError without a block' do
       expect {
         create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune
         end
       }.to raise_error(ArgumentError, 'prune requires a block')
@@ -319,7 +319,7 @@ RSpec.describe Pumice::DSL do
 
     it 'does not set a bulk_operation' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         prune { where(created_at: ..1.year.ago) }
       end
@@ -329,7 +329,7 @@ RSpec.describe Pumice::DSL do
 
     it 'is independent from bulk operations' do
       sanitizer = create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:email) { 'fake@example.com' }
         prune { where(created_at: ..1.year.ago) }
       end
@@ -342,7 +342,7 @@ RSpec.describe Pumice::DSL do
     describe 'prune_older_than' do
       it 'sets a prune operation from a duration' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.com' }
           prune_older_than 1.year
         end
@@ -353,7 +353,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a DateTime' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune_older_than DateTime.new(2024, 1, 1)
         end
 
@@ -362,7 +362,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a date string' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune_older_than '2024-01-01'
         end
 
@@ -371,7 +371,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a custom column' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune_older_than 90.days, column: :updated_at
         end
 
@@ -381,7 +381,7 @@ RSpec.describe Pumice::DSL do
       it 'raises for invalid age type' do
         expect {
           create_sanitizer do
-            sanitizes :user
+            sanitizes :users
             prune_older_than 42
           end
         }.to raise_error(ArgumentError, /Duration/)
@@ -391,7 +391,7 @@ RSpec.describe Pumice::DSL do
     describe 'prune_newer_than' do
       it 'sets a prune operation from a duration' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { 'fake@example.com' }
           prune_newer_than 30.days
         end
@@ -402,7 +402,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a date string' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune_newer_than '2025-06-01'
         end
 
@@ -411,7 +411,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a custom column' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           prune_newer_than 7.days, column: :updated_at
         end
 
@@ -424,7 +424,7 @@ RSpec.describe Pumice::DSL do
     describe 'truncate!' do
       it 'sets a truncate bulk operation' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           truncate!
         end
 
@@ -435,7 +435,7 @@ RSpec.describe Pumice::DSL do
     describe 'delete_all' do
       it 'sets a delete bulk operation' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           delete_all
         end
 
@@ -444,7 +444,7 @@ RSpec.describe Pumice::DSL do
 
       it 'accepts a scope block' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           delete_all { where(status: 'archived') }
         end
 
@@ -455,7 +455,7 @@ RSpec.describe Pumice::DSL do
     describe 'destroy_all' do
       it 'sets a destroy bulk operation' do
         sanitizer = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           destroy_all
         end
 
@@ -468,7 +468,7 @@ RSpec.describe Pumice::DSL do
     let(:user) { create(:user, first_name: 'John', last_name: 'Doe', email: 'john@example.com') }
     let(:sanitizer_class) do
       create_sanitizer do
-        sanitizes :user
+        sanitizes :users
         scrub(:first_name) { 'Fake' }
         scrub(:last_name) { first_name }  # References scrubbed first_name
         scrub(:email) { "#{raw_first_name}@example.com" }  # References raw first_name
@@ -502,7 +502,7 @@ RSpec.describe Pumice::DSL do
     describe 'raw(:name) explicit accessor' do
       let(:raw_sanitizer_class) do
         create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:first_name) { 'Fake' }
           scrub(:email) { "#{raw(:first_name)}@example.com" }
         end
@@ -517,7 +517,7 @@ RSpec.describe Pumice::DSL do
     describe 'record delegation' do
       it 'delegates other method calls to the record' do
         sanitizer_class_with_id = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { "user#{id}@example.com" }
         end
 
@@ -529,7 +529,7 @@ RSpec.describe Pumice::DSL do
     describe 'method not found' do
       it 'raises NameError for undefined methods' do
         sanitizer_class_with_undefined = create_sanitizer do
-          sanitizes :user
+          sanitizes :users
           scrub(:email) { nonexistent_method }
         end
 

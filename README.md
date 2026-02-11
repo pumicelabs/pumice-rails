@@ -131,15 +131,15 @@ end
 
 ### Model binding
 
-Inferred from class name by default. Override when the naming doesn't match:
+Inferred from class name by default — `UserSanitizer` automatically binds to `User`, so `sanitizes` is optional when the naming convention matches. Use it when the class name doesn't map directly to the model:
 
 ```ruby
 class LegacyUserDataSanitizer < Pumice::Sanitizer
-  sanitizes :user                                  # binds to User
+  sanitizes :users                                   # binds to User
 end
 
 class AdminUserSanitizer < Pumice::Sanitizer
-  sanitizes :admin_user, class_name: 'Admin::User' # namespaced model
+  sanitizes :admin_users, class_name: 'Admin::User'  # namespaced model
 end
 ```
 
@@ -170,7 +170,7 @@ end
 
 # SQL DELETE with optional scope (no callbacks)
 class VersionSanitizer < Pumice::Sanitizer
-  sanitizes :version, class_name: 'PaperTrail::Version'
+  sanitizes :versions, class_name: 'PaperTrail::Version'
   delete_all { where(item_type: %w[User Message]) }
 end
 
