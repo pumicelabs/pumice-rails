@@ -493,7 +493,7 @@ namespace :db do
       if result.high_confidence.any?
         out.success("Recommended Configuration:")
         out.blank
-        out.line("Add to config/initializers/sanitization.rb:")
+        out.line("Add to config/initializers/pumice.rb:")
         out.blank
         out.line("  config.pruning = {")
         out.line("    older_than: #{retention_days}.days,")

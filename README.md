@@ -500,7 +500,7 @@ rake 'db:scrub:only[users,messages]'  # scrub specific tables in-place
 Create an initializer. All settings have sensible defaults — only override what you need.
 
 ```ruby
-# config/initializers/sanitization.rb
+# config/initializers/pumice.rb
 Pumice.configure do |config|
   # Column coverage enforcement (default: true)
   # Raises if a sanitizer doesn't define every column as scrub or keep
