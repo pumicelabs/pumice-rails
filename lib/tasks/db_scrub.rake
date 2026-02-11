@@ -266,15 +266,18 @@ def cleanup_temp_database(source_url, temp_db_name, out)
   original_config = ActiveRecord::Base.connection_db_config
   ActiveRecord::Base.establish_connection(admin_url)
 
+  conn = ActiveRecord::Base.connection
+  quoted_name = conn.quote(temp_db_name)
+
   # Terminate connections to temp database before dropping
-  ActiveRecord::Base.connection.execute(<<~SQL)
+  conn.execute(<<~SQL)
     SELECT pg_terminate_backend(pid)
     FROM pg_stat_activity
-    WHERE datname = '#{temp_db_name}'
+    WHERE datname = #{quoted_name}
       AND pid <> pg_backend_pid()
   SQL
 
-  ActiveRecord::Base.connection.execute("DROP DATABASE IF EXISTS \"#{temp_db_name}\"")
+  conn.execute("DROP DATABASE IF EXISTS #{conn.quote_table_name(temp_db_name)}")
   out.line("Cleaned up temporary database: #{temp_db_name}")
 rescue StandardError => e
   out.warning("Failed to cleanup temp database '#{temp_db_name}': #{e.message}")
@@ -332,7 +335,8 @@ namespace :db do
       matviews_to_refresh.each_with_index do |matview, idx|
         begin
           out.line("  [#{idx + 1}/#{matviews_to_refresh.size}] #{matview}...")
-          ActiveRecord::Base.connection.execute("REFRESH MATERIALIZED VIEW #{matview}")
+          quoted_view = ActiveRecord::Base.connection.quote_table_name(matview)
+          ActiveRecord::Base.connection.execute("REFRESH MATERIALIZED VIEW #{quoted_view}")
           succeeded << matview
         rescue StandardError => e
           out.warning("    ⚠️  Failed: #{e.message}")

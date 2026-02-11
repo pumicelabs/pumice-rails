@@ -132,14 +132,18 @@ module Pumice
       end
 
       def analyze_table(table_name)
+        conn = ActiveRecord::Base.connection
+        quoted_table = conn.quote_table_name(table_name)
+        quoted_days = retention_days.to_i
+
         # Get row count and date range
-        result = ActiveRecord::Base.connection.execute(<<~SQL).first
+        result = conn.execute(<<~SQL).first
           SELECT
             COUNT(*) as row_count,
             MIN(created_at) as oldest_date,
             MAX(created_at) as newest_date,
-            COUNT(*) FILTER (WHERE created_at < NOW() - INTERVAL '#{retention_days} days') as old_record_count
-          FROM #{table_name}
+            COUNT(*) FILTER (WHERE created_at < NOW() - INTERVAL '#{quoted_days} days') as old_record_count
+          FROM #{quoted_table}
         SQL
 
         row_count = result['row_count'].to_i
@@ -170,14 +174,17 @@ module Pumice
       end
 
       def has_dependencies?(table_name)
+        conn = ActiveRecord::Base.connection
+        quoted_name = conn.quote(table_name)
+
         # Check if other tables reference this table (foreign keys pointing TO this table)
-        result = ActiveRecord::Base.connection.execute(<<~SQL)
+        result = conn.execute(<<~SQL)
           SELECT COUNT(*) as ref_count
           FROM information_schema.table_constraints tc
           JOIN information_schema.constraint_column_usage ccu
             ON tc.constraint_name = ccu.constraint_name
           WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND ccu.table_name = '#{table_name}'
+            AND ccu.table_name = #{quoted_name}
             AND tc.table_schema = 'public'
         SQL
 

@@ -97,7 +97,7 @@ module Pumice
 
       with_connection(@source_url) do |conn|
         conn.transaction do
-          conn.execute("CREATE TEMP TABLE #{test_table} (id integer)")
+          conn.execute("CREATE TEMP TABLE #{conn.quote_table_name(test_table)} (id integer)")
           raise ActiveRecord::Rollback
         end
         # If we get here without error, we have write access
@@ -187,17 +187,20 @@ module Pumice
       admin_url = @target_url.sub(/\/[^\/]+$/, '/postgres')
 
       with_connection(admin_url) do |conn|
+        quoted_name = conn.quote(target_db_name)
+        quoted_ident = conn.quote_table_name(target_db_name)
+
         # Terminate existing connections to target database
         conn.execute(<<~SQL)
           SELECT pg_terminate_backend(pid)
           FROM pg_stat_activity
-          WHERE datname = '#{target_db_name}'
+          WHERE datname = #{quoted_name}
             AND pid <> pg_backend_pid()
         SQL
 
         # Drop and recreate
-        conn.execute("DROP DATABASE IF EXISTS \"#{target_db_name}\"")
-        conn.execute("CREATE DATABASE \"#{target_db_name}\"")
+        conn.execute("DROP DATABASE IF EXISTS #{quoted_ident}")
+        conn.execute("CREATE DATABASE #{quoted_ident}")
       end
     end
 
