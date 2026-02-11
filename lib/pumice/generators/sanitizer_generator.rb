@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 require 'rails/generators/named_base'
+require_relative 'column_classification'
 
 module Pumice
   module Generators
     class SanitizerGenerator < Rails::Generators::NamedBase
+      include ColumnClassification
+
       source_root File.expand_path('templates', __dir__)
 
       desc 'Generates a Pumice sanitizer with smart defaults for the given model'
@@ -26,61 +29,6 @@ module Pumice
 
       def plural_file_name
         file_name.pluralize
-      end
-
-      def model_class
-        @model_class ||= class_name.constantize
-      rescue NameError
-        raise "Model #{class_name} not found. Please ensure the model exists."
-      end
-
-      def columns
-        @columns ||= model_class.columns.reject { |c| protected_column?(c.name) }
-      end
-
-      def protected_column?(name)
-        %w[id created_at updated_at].include?(name)
-      end
-
-      def pii_columns
-        columns.select { |c| pii_column?(c) }
-      end
-
-      def credential_columns
-        columns.select { |c| credential_column?(c) }
-      end
-
-      def keep_columns
-        columns.reject { |c| pii_column?(c) || credential_column?(c) }
-      end
-
-      def pii_column?(column)
-        name = column.name
-        type = column.type
-
-        # String/text columns that likely contain PII
-        return false unless %i[string text].include?(type)
-
-        pii_patterns = %w[
-          name email phone address city state zip country
-          street first_name last_name middle_name full_name
-          display_name username login bio notes description
-          room_number call_number ssn tax_id license
-        ]
-
-        pii_patterns.any? { |pattern| name.include?(pattern) }
-      end
-
-      def credential_column?(column)
-        name = column.name
-
-        credential_patterns = %w[
-          password token secret key api_key access_token
-          refresh_token encrypted clever_id google_id
-          facebook_id twitter_id oauth
-        ]
-
-        credential_patterns.any? { |pattern| name.include?(pattern) }
       end
 
       def scrub_logic_for(column)
