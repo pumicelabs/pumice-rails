@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+class <%= class_name %>Sanitizer < Pumice::Sanitizer
+<% if has_pii_columns? -%>
+  # PII - scrub with fake data
+<% pii_columns.each do |column| -%>
+  scrub(:<%= column.name %>) <%= scrub_logic_for(column) %>
+<% end -%>
+<% end -%>
+<% if has_credential_columns? -%>
+
+  # Credentials - clear sensitive data
+<% credential_columns.each do |column| -%>
+  scrub(:<%= column.name %>) { nil }
+<% end -%>
+<% end -%>
+<% if has_keep_columns? -%>
+
+  # Non-PII - safe to keep
+  keep <%= keep_columns.map { |c| ":#{c.name}" }.join(",\n       ") %>
+<% end -%>
+end
