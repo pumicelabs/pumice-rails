@@ -1,585 +1,303 @@
 # Pumice
 
-A Rails library for sanitizing sensitive data (PII) in databases. All scrubbing operations are **non-destructive** to the source database.
+Database PII sanitization for Rails. Declarative scrubbing, pruning, and safe export of PII-free database copies. All operations are **non-destructive** to the source database unless you explicitly opt into destructive mode.
 
-## Usage Scenarios
+## Install
 
-| Scenario | Command | Source Modified? | Description |
-|----------|---------|:---------------:|-------------|
-| Generate scrubbed dump | `rake db:scrub:generate` | No | Creates temp copy, scrubs, exports dump, cleans up |
-| Copy to secondary DB | `rake db:scrub:safe` | No | Copies to target database, scrubs target |
-| Live soft scrubbing | `config.soft_scrubbing = {}` | No | Runtime masking without any database changes |
-
-### Quick Start
+```ruby
+# Gemfile
+gem 'pumice'
+```
 
 ```bash
-# Generate a scrubbed SQL dump (source database untouched)
-# With config.source_database_url = :auto, no env vars needed locally:
-docker compose run --rm web bundle exec rake db:scrub:generate
+bundle install
+```
 
-# Copy and scrub to a separate database
+## Quick Start
+
+### 1. Create the initializer
+
+```bash
+rails generate pumice:install
+```
+
+This creates [config/initializers/pumice.rb](config/initializers/pumice.rb) with commented defaults. The defaults work out of the box — customize later as needed.
+
+### 2. Generate a sanitizer
+
+```bash
+rails generate pumice:sanitizer User
+```
+
+This inspects your model's columns and generates [app/sanitizers/user_sanitizer.rb](app/sanitizers/user_sanitizer.rb) with smart defaults — PII columns get `scrub` blocks, credentials get cleared, and safe columns get `keep` declarations.
+
+### 3. Review and adjust the generated sanitizer
+
+```ruby
+# app/sanitizers/user_sanitizer.rb
+class UserSanitizer < Pumice::Sanitizer
+  scrub(:email) { fake_email(record) }
+  scrub(:first_name) { Faker::Name.first_name }
+  scrub(:last_name) { Faker::Name.last_name }
+  scrub(:phone) { fake_phone }
+  scrub(:encrypted_password) { fake_password }
+
+  keep :id, :created_at, :updated_at, :roles, :active
+end
+```
+
+### 4. Run it
+
+```bash
+# Preview what would change (no writes)
+rake db:scrub:test
+
+# Generate a scrubbed database dump (source untouched)
+rake db:scrub:generate
+
+# Or copy-and-scrub to a separate database
 SOURCE_DATABASE_URL=postgres://prod/myapp \
 TARGET_DATABASE_URL=postgres://local/myapp_dev \
-docker compose run --rm web bundle exec rake db:scrub:safe
-
-# Enable soft scrubbing for runtime PII masking
-# In config/initializers/sanitization.rb:
-Pumice.configure { |c| c.soft_scrubbing = {} }
+rake db:scrub:safe
 ```
+
+That's it. Pumice auto-discovers sanitizers in `app/sanitizers/` and auto-registers them by class name (`UserSanitizer` → `users`).
 
 ---
 
 ## Table of Contents
 
-- [Usage Scenarios](#usage-scenarios)
-- [Setup](#setup)
+- [Quick Start](#quick-start)
+- [Sanitizer DSL](#sanitizer-dsl)
+- [Helpers](#helpers)
+- [Rake Tasks](#rake-tasks)
 - [Configuration](#configuration)
-- [Defining Sanitizers](#defining-sanitizers)
-- [DSL Reference](#dsl-reference)
-- [Hard Scrubbing](#hard-scrubbing)
 - [Safe Scrub](#safe-scrub)
 - [Pruning](#pruning)
 - [Soft Scrubbing](#soft-scrubbing)
+- [Verification](#verification)
 - [Testing](#testing)
-- [Roadmap](#roadmap)
+- [Materialized Views](#materialized-views)
+- [Gotchas](#gotchas)
 
 ---
 
-## Setup
+## Sanitizer DSL
 
-### 1. Create the initializer
+Each sanitizer handles one ActiveRecord model. Place them in `app/sanitizers/`.
 
-```ruby
-# config/initializers/sanitization.rb
-require Rails.root.join('lib/pumice')
+### `scrub(column, &block)`
 
-Pumice.configure do |config|
-  # Tables containing PII to analyze for row counts
-  config.sensitive_tables = %w[users messages student_profiles]
-
-  # Email domains that indicate real PII (validation fails if found)
-  config.sensitive_email_domains = %w[gmail.com yahoo.com hotmail.com]
-
-  # Enable soft scrubbing for runtime masking
-  config.soft_scrubbing = {}
-end
-```
-
-### 2. Create sanitizer classes
-
-Place sanitizers in `app/sanitizers/` (auto-loaded by Rails). Sanitizers are auto-discovered by rake tasks based on class name:
+Define how to replace a PII column. The block receives the original value and has access to `record` (the ActiveRecord instance) and all [helpers](#helpers).
 
 ```ruby
-# app/sanitizers/user_sanitizer.rb
-class UserSanitizer < Pumice::Sanitizer
-  # Define scrub rules for each PII column
-  scrub(:email) { fake_email(record) }
-  scrub(:first_name) { Faker::Name.first_name }
-
-  # Mark non-PII columns as safe to keep
-  keep :created_at, :updated_at, :roles
-end
-# Auto-discovered as 'users' for rake tasks
-```
-
-Sanitizers are automatically registered when they inherit from `Pumice::Sanitizer`. The friendly name for rake tasks is derived from the class name (`UserSanitizer` → `users`). To customize:
-
-```ruby
-class TutorSessionFeedbackSanitizer < Pumice::Sanitizer
-  friendly_name 'feedback'  # Use 'feedback' instead of 'tutor_session_feedbacks'
-  # ...
-end
-```
-
----
-
-## Configuration
-
-```ruby
-Pumice.configure do |config|
-  # Increase console output (default: true)
-  config.verbose = false
-  # Raise if columns are undefined (default: true)
-  config.strict = false
-  # Stop on first sanitizer failure (default: true)
-  config.continue_on_error = false 
-  # Allow the use of keep_undefined_columns! in sanitizers (default: true)
-  config.allow_keep_undefined_columns = false  
-  # Tables containing PII to analyze (default: [])
-  config.sensitive_tables = ['users', 'accounts']
-  # Email domains that indicate real PII (validation fails if found)(default: [])
-  config.sensitive_email_domains = ['gmail.com', 'microsoft.com']
-  # Model to query for email validation (default: 'User')
-  config.sensitive_email_model = 'Account'
-  # Column name for email lookup (default: 'email')
-  config.sensitive_email_column = 'email_address'
-  # Token columns to verify are cleared during validation (default: Devise tokens)
-  config.sensitive_token_columns = %w[reset_password_token confirmation_token]
-  # External ID columns to verify are cleared (default: [])
-  config.sensitive_external_id_columns = %w[clever_id google_id]
-
-  # Soft scrubbing (runtime PII masking)
-
-  # Default: false (disabled). Set to hash to enable with options.
-  config.soft_scrubbing = {
-    context: :current_user,  # Viewer context: user object, Proc, or Symbol
-    if: ->(record, viewer) { viewer.nil? || !viewer.admin? }  # Scrub if not admin
-    # Or use unless: for the inverse logic
-    # unless: ->(record, viewer) { viewer&.admin? }  # Scrub unless viewer is admin
-  }
-  # How to handle raw_* method conflicts (default: :skip)
-  # :skip  - silently skip (existing method takes precedence)
-  # :warn  - log warning but continue
-  # :raise - raise Pumice::MethodConflictError
-  config.on_raw_method_conflict = :warn
-
-  # Safe scrub (copy-then-scrub workflow)
-
-  # Source database URL (default: nil, falls back to DATABASE_URL)
-  # Set to :auto to derive from ActiveRecord config (no env vars needed locally)
-  config.source_database_url = :auto unless Rails.env.production?
-  # Target database URL (default: nil, falls back to SCRUBBED_DATABASE_URL)
-  config.target_database_url = ENV['SCRUBBED_DATABASE_URL']
-  # Optional export path for scrubbed dump (default: nil)
-  config.export_path = "tmp/scrubbed_#{Date.today}.dump"
-  # Export format: :custom (pg_dump -Fc) or :plain (SQL) (default: :custom)
-  config.export_format = :custom
-  # Enforce read-only source credentials (default: false = warn only)
-  config.require_readonly_source = true
-
-  # Pruning (remove old records before sanitization)
-
-  # Delete old records to reduce dataset size (default: false = disabled)
-  config.pruning = {
-    older_than: 90.days,          # Delete records older than this (mutually exclusive with newer_than)
-    # newer_than: 30.days,        # Or delete records newer than this
-    column: :created_at,          # Timestamp column to check (default: :created_at)
-    on_conflict: :warn,           # :warn, :raise, or :rollback when a sanitizer also declares prune
-    # only: %w[logs events],      # Prune ONLY these tables (whitelist)
-    except: %w[users messages]    # Never prune these tables (blacklist)
-  }
-end
-```
-
-### Environment Variables
-
-Runtime options controlled via environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `DRY_RUN=true` | Log changes without persisting to database |
-| `VERBOSE=true` | Show detailed progress output |
-| `PRUNE=false` | Disable pruning without changing config |
-| `SOURCE_DATABASE_URL` | Source database for safe scrub (falls back to `DATABASE_URL`) |
-| `TARGET_DATABASE_URL` | Target database for safe scrub |
-| `SCRUBBED_DATABASE_URL` | Alternative to `TARGET_DATABASE_URL` |
-| `EXPORT_PATH` | Path to export scrubbed database dump |
-
----
-
-## Defining Sanitizers
-
-Each sanitizer handles one ActiveRecord model:
-
-```ruby
-class UserSanitizer < Pumice::Sanitizer
-  # Explicit model binding (optional if name matches *Sanitizer pattern)
-  sanitizes :user
-
-  # PII columns - define replacement logic
-  scrub(:email) { fake_email(record) }
-  scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
-  scrub(:phone) { fake_phone }
-  scrub(:address) { Faker::Address.street_address }
-  scrub(:encrypted_password) { fake_password }
-  scrub(:api_token) { nil }  # Clear sensitive tokens
-
-  # Non-PII columns - explicitly mark as safe
-  keep :id, :created_at, :updated_at, :roles, :active
-
-  # UNSAFE: Keep all undefined columns (bypasses PII review)
-  # Only use for development/testing
-  keep_undefined_columns!
-end
-```
-
----
-
-## DSL Reference
-
-### `scrub(column_name, &block)`
-
-Define how to sanitize a column. The block receives the original value and has access to:
-
-- `record` - The ActiveRecord instance being sanitized
-- Helper methods from `Pumice::Helpers`
-- Other scrubbed attributes (by name)
-- Raw database values (via `raw_*` methods)
-
-```ruby
-# Simple replacement
 scrub(:first_name) { Faker::Name.first_name }
-
-# Access original value
 scrub(:bio) { |value| match_length(value, use: :paragraph) }
-
-# Access the record
-scrub(:email) { fake_email(record, domain: 'test.example') }
-
-# Conditional logic
 scrub(:notes) { |value| value.present? ? Faker::Lorem.sentence : nil }
+scrub(:email) { fake_email(record, domain: 'test.example') }
 ```
 
-#### Referencing Other Attributes
+### `keep(*columns)`
 
-Within `scrub` blocks, you can reference other attributes using clean, readable syntax:
-
-**Bare attribute names return scrubbed values:**
+Mark columns as non-PII. No changes applied.
 
 ```ruby
-class ClassroomSanitizer < Pumice::Sanitizer
-  scrub(:name) { Faker::Educator.course_name }
-  scrub(:abbreviation) { name }  # Uses the scrubbed name
-  # If name is scrubbed to "Advanced Physics", abbreviation also gets "Advanced Physics"
-end
-```
-
-**The `raw_*` prefix accesses original database values:**
-
-```ruby
-class UserSanitizer < Pumice::Sanitizer
-  scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
-
-  # Use raw database values to maintain relationships
-  scrub(:email) { "#{raw_first_name}.#{raw_last_name}@example.test".downcase }
-  # If DB has first_name="John", last_name="Doe", email becomes "john.doe@example.test"
-end
-```
-
-**Complex dependencies:**
-
-```ruby
-class StudentProfileSanitizer < Pumice::Sanitizer
-  scrub(:student_id) { fake_id(record.id, prefix: 'STU') }
-  scrub(:display_name) { "Student #{student_id}" }  # Uses scrubbed student_id
-  scrub(:login) { "#{raw_first_name}_#{student_id}".downcase }  # Mixes raw and scrubbed
-end
-```
-
-**Why this is useful:**
-
-- **Maintain data consistency** - Derived fields stay consistent with their source
-- **Preserve relationships** - Related fields use the same scrubbed values
-- **Readable code** - Clear whether you want scrubbed or raw values
-- **Avoid repetition** - Don't duplicate scrubbing logic across columns
-
-### `keep(*column_names)`
-
-Mark columns as non-PII, safe to keep unchanged:
-
-```ruby
-keep :id, :created_at, :updated_at
-keep :role, :status, :active
+keep :id, :created_at, :updated_at, :role, :status
 ```
 
 ### `keep_undefined_columns!`
 
-**Use with caution.** Keeps all columns not explicitly defined via `scrub` or `keep`. Bypasses PII review. Disable in production with:
+Keeps all columns not explicitly defined via `scrub` or `keep`. **Bypasses PII review.** Use only during initial development. Disable globally with:
 
 ```ruby
 Pumice.configure { |c| c.allow_keep_undefined_columns = false }
 ```
 
-### `sanitizes(model_name, class_name:)`
+### Referencing other attributes in scrub blocks
 
-Explicitly bind to a model (optional if sanitizer follows `ModelSanitizer` naming):
+**Bare names** return scrubbed values. **`raw_*` prefix** returns original database values.
 
 ```ruby
-class LegacyUserDataSanitizer < Pumice::Sanitizer
-  sanitizes :user  # Binds to User model
-end
-
-# Or with explicit class name (useful for namespaced models)
-class AdminUserSanitizer < Pumice::Sanitizer
-  sanitizes :admin_user, class_name: 'Admin::User'
-end
-
-# Also accepts a constant
-class V2UserSanitizer < Pumice::Sanitizer
-  sanitizes :user, class_name: V2::User
+class UserSanitizer < Pumice::Sanitizer
+  scrub(:first_name) { Faker::Name.first_name }
+  scrub(:last_name) { Faker::Name.last_name }
+  scrub(:display_name) { "#{first_name} #{last_name}" }             # scrubbed values
+  scrub(:email) { "#{raw_first_name}.#{raw_last_name}@example.test".downcase }  # original values
+  keep :id, :created_at, :updated_at
 end
 ```
 
-### `friendly_name(name)`
+### Model binding
 
-Override the auto-derived name used by rake tasks. By default, the name is derived from the class name:
+Inferred from class name by default. Override when the naming doesn't match:
 
-| Class Name | Default Friendly Name |
-|------------|----------------------|
-| `UserSanitizer` | `users` |
-| `StudentProfileSanitizer` | `student_profiles` |
-| `TutorSessionFeedbackSanitizer` | `tutor_session_feedbacks` |
+```ruby
+class LegacyUserDataSanitizer < Pumice::Sanitizer
+  sanitizes :user                                  # binds to User
+end
 
-To customize:
+class AdminUserSanitizer < Pumice::Sanitizer
+  sanitizes :admin_user, class_name: 'Admin::User' # namespaced model
+end
+```
+
+### Friendly names
+
+Controls the name used in rake tasks. Default: class name underscored and pluralized.
 
 ```ruby
 class TutorSessionFeedbackSanitizer < Pumice::Sanitizer
   friendly_name 'feedback'  # rake 'db:scrub:only[feedback]'
 end
-
-class ChatMessageSanitizer < Pumice::Sanitizer
-  friendly_name 'chat'  # rake 'db:scrub:only[chat]'
-end
 ```
 
-### `prune(&scope)`
+| Class Name | Default | Custom |
+|---|---|---|
+| `UserSanitizer` | `users` | - |
+| `TutorSessionFeedbackSanitizer` | `tutor_session_feedbacks` | `feedback` |
 
-Removes matching records **before** record-by-record scrubbing. Use when a table has too many records but you still need to scrub the survivors.
+### Bulk operations (terminal)
 
-Unlike bulk operations (`truncate!`, `delete_all`, `destroy_all`) which are **terminal** (no scrubbing runs after), `prune` is a **pre-step**: it deletes matching records first, then scrubbing continues on the remaining records.
+For tables where you want records **deleted**, not scrubbed. No `scrub`/`keep` declarations needed. No scrubbing runs after.
 
 ```ruby
-# Delete old records, then scrub the rest
-class EmailLogSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email(record) }
-  scrub(:subject) { match_length(raw_subject) }
-  scrub(:body) { match_length(raw_body, use: :paragraph) }
-  scrub(:headers) { fake_json(raw_headers) }
-
-  keep :user_id, :status
-
-  prune { where(created_at: ..1.year.ago) }
-end
-
-# Delete archived records, then scrub active ones
-class NotificationSanitizer < Pumice::Sanitizer
-  scrub(:message) { match_length(raw_message) }
-  scrub(:recipient_email) { fake_email(record) }
-
-  keep :notification_type, :read_at
-
-  prune { where(status: 'archived') }
-end
-```
-
-#### `prune_older_than(age, column:)` / `prune_newer_than(age, column:)`
-
-Convenience shorthands for common time-based pruning. Accepts a duration (`1.year`, `90.days`), a `DateTime`/`Time`/`Date` object, or a date string (`"2024-01-01"`).
-
-```ruby
-# Duration — delete records older than 1 year
-prune_older_than 1.year
-
-# Date string
-prune_older_than "2024-01-01"
-
-# DateTime object
-prune_older_than DateTime.new(2024, 6, 15)
-
-# Custom column (default: :created_at)
-prune_older_than 90.days, column: :updated_at
-
-# Newer than — delete recent records, keep historical
-prune_newer_than 30.days
-```
-
-**Execution flow:**
-
-```
-scrub_all!
-├─ prune: DELETE matching records (fast SQL delete)
-├─ scrub: Process remaining records one-by-one
-└─ verify: Run verification checks
-```
-
-### Bulk Operations (Terminal)
-
-For high-volume tables where you want to delete records and **nothing else**. No `scrub`/`keep` declarations are needed. No scrubbing runs after a bulk operation.
-
-#### `truncate!`
-
-Fastest option. Wipes the entire table and resets auto-increment counters. No conditions allowed.
-
-```ruby
+# Wipe entire table (fastest, resets auto-increment)
 class SessionSanitizer < Pumice::Sanitizer
-  sanitizes :session
   truncate!
 end
-```
 
-#### `delete_all(&scope)`
-
-Fast bulk delete using SQL DELETE. No callbacks or association handling. Optionally pass a block to scope the deletion.
-
-```ruby
-# Delete all records
-class OldLogSanitizer < Pumice::Sanitizer
-  sanitizes :log_entry
-  delete_all
-end
-
-# Delete with conditions (block executes in model scope)
+# SQL DELETE with optional scope (no callbacks)
 class VersionSanitizer < Pumice::Sanitizer
   sanitizes :version, class_name: 'PaperTrail::Version'
-
-  SENSITIVE_TYPES = %w[User Message StudentProfile].freeze
-
-  delete_all { where(item_type: SENSITIVE_TYPES) }
+  delete_all { where(item_type: %w[User Message]) }
 end
-```
 
-#### `destroy_all(&scope)`
-
-Loads records and calls `destroy` on each, running callbacks and handling `dependent: :destroy` associations. Slower but respects ActiveRecord lifecycle.
-
-```ruby
-# Destroy orphaned attachments (triggers dependent: :destroy on blobs)
-class OrphanedAttachmentSanitizer < Pumice::Sanitizer
-  sanitizes :attachment
+# ActiveRecord destroy with callbacks and dependent associations
+class AttachmentSanitizer < Pumice::Sanitizer
   destroy_all { where(attachable_id: nil) }
 end
 ```
 
-### Which to Use When
+### `prune` (pre-step, not terminal)
 
-| Goal | DSL | Scrubs Survivors? |
-|------|-----|:-----------------:|
-| Delete old records by age, then scrub the rest | `prune_older_than 1.year` | Yes |
-| Delete recent records by age, then scrub the rest | `prune_newer_than 30.days` | Yes |
-| Delete some records (custom scope), then scrub the rest | `prune { scope }` | Yes |
-| Delete all records (wipe table) | `truncate!` | No |
-| Delete records matching a condition | `delete_all { scope }` | No |
-| Delete all records (no scope) | `delete_all` | No |
-| Destroy records with callbacks | `destroy_all { scope }` | No |
-
-**Rule of thumb:**
-- Need to **scrub** remaining records? Use `prune`.
-- Just want records **gone**? Use a bulk operation (`truncate!`, `delete_all`, `destroy_all`).
-
-### Bulk Operation Comparison
-
-| Method | Speed | Callbacks | Associations | Conditions |
-|--------|-------|-----------|--------------|------------|
-| `prune` | Fast (pre-step) | No | No | Yes (block) |
-| `prune_older_than` | Fast (pre-step) | No | No | Age-based |
-| `prune_newer_than` | Fast (pre-step) | No | No | Age-based |
-| `truncate!` | Fastest | No | No | No |
-| `delete_all` | Fast | No | No | Optional |
-| `destroy_all` | Slow | Yes | Yes | Optional |
-
-**Note:** Bulk operations skip strict column coverage validation since they don't use `scrub`/`keep` declarations.
-
-### Verification
-
-Pumice provides two verification methods to confirm sanitization completed successfully:
-
-| Method | Scope | Use Case |
-|--------|-------|----------|
-| `verify` | Entire table | Check table state after all records processed |
-| `verify_each` | Per record | Check each record immediately after sanitization |
-
-Bulk operations also accept `verify: true` as inline shorthand for default verification.
-
-All verification raises `Pumice::VerificationError` on failure and is skipped in dry run mode.
-
-#### `verify` - Table-Level Verification
-
-Use a block for custom verification logic. The block executes in the model's scope and should return truthy for success:
+Removes matching records **before** record-by-record scrubbing. Survivors get scrubbed.
 
 ```ruby
-class UserSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email }
-  scrub(:phone) { fake_phone }
-  keep :id, :role
+class EmailLogSanitizer < Pumice::Sanitizer
+  prune { where(created_at: ..1.year.ago) }
 
-  verify "No real email domains should remain" do
-    where("email LIKE '%@gmail.com' OR email LIKE '%@yahoo.com'").none?
-  end
-end
-
-class AuditSanitizer < Pumice::Sanitizer
-  delete_all { where('created_at < ?', 90.days.ago) }
-
-  verify { where('created_at < ?', 90.days.ago).none? }
+  scrub(:email) { fake_email(record) }
+  scrub(:body) { |value| match_length(value, use: :paragraph) }
+  keep :user_id, :status
 end
 ```
 
-For bulk operations, call `verify` without a block to use the default verification:
+Convenience shorthands:
 
 ```ruby
-class VersionSanitizer < Pumice::Sanitizer
-  delete_all { where(item_type: SENSITIVE_TYPES) }
-  verify  # Uses default: where(item_type: SENSITIVE_TYPES).none?
-end
+prune_older_than 1.year
+prune_older_than 90.days, column: :updated_at
+prune_older_than "2024-01-01"
+prune_newer_than 30.days
 ```
 
-#### `verify_each` - Per-Record Verification
+### When to use what
 
-Verify each record immediately after sanitization. The block receives the sanitized record:
+| Goal | DSL | Scrubs survivors? |
+|---|---|:---:|
+| Delete old records, scrub the rest | `prune` / `prune_older_than` | Yes |
+| Wipe entire table | `truncate!` | No |
+| Delete matching records (fast) | `delete_all { scope }` | No |
+| Destroy with callbacks | `destroy_all { scope }` | No |
+
+### Programmatic usage
 
 ```ruby
-class UserSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email }
-  scrub(:ssn) { '***-**-****' }
-  keep :id, :name
-
-  # Runs after each record is sanitized
-  verify_each "Record should not contain real PII" do |record|
-    !record.email.include?('@gmail.com') &&
-    !record.ssn.match?(/\d{3}-\d{2}-\d{4}/)
-  end
-end
+UserSanitizer.sanitize(user)          # returns hash, does not persist
+UserSanitizer.sanitize(user, :email)  # returns single scrubbed value
+UserSanitizer.scrub!(user)            # persists all scrubbed values
+UserSanitizer.scrub!(user, :email)    # persists single scrubbed value
+UserSanitizer.scrub_all!              # batch: prune → scrub → verify
 ```
 
-#### `verify: true` - Inline Verification
+---
 
-Pass `verify: true` to bulk operations for compact syntax:
+## Helpers
+
+All helpers are available inside `scrub` blocks via `Pumice::Helpers`.
+
+### Quick reference
+
+| Helper | Output | Example |
+|---|---|---|
+| `fake_email(record)` | `user_123@example.test` | Deterministic per record |
+| `fake_phone(digits = 10)` | `5551234567` | Random digits |
+| `fake_password(pwd = 'password123', cost: 4)` | `$2a$04$...` | BCrypt hash |
+| `fake_id(id, prefix: 'ID')` | `ID000123` | Zero-padded |
+| `match_length(value, use: :sentence)` | `Lorem ipsum...` | Matches original length |
+| `fake_json(value, preserve_keys: true, keep: [])` | `{"name": "lorem"}` | Structure-preserving |
+
+### `fake_email`
+
+Deterministic — same record always produces the same email across runs. Important for data consistency.
 
 ```ruby
-class VersionSanitizer < Pumice::Sanitizer
-  # Equivalent to: delete_all { ... } + verify
-  delete_all(verify: true) { where(item_type: SENSITIVE_TYPES) }
-end
-
-class SessionSanitizer < Pumice::Sanitizer
-  truncate!(verify: true)  # Verifies count.zero?
-end
-
-class AttachmentSanitizer < Pumice::Sanitizer
-  destroy_all(verify: true) { where(attachable_id: nil) }
-end
+scrub(:email) { fake_email(record) }                               # user_123@example.test
+scrub(:email) { fake_email(record, domain: 'test.example.com') }   # user_123@test.example.com
+scrub(:contact_email) { fake_email(prefix: 'contact', unique_id: record.id) }
 ```
 
-#### Default Verification
+### `fake_password`
 
-| Operation | Default Verification |
-|-----------|---------------------|
-| `truncate!` | `count.zero?` |
-| `delete_all` (no scope) | `count.zero?` |
-| `delete_all { scope }` | `scope.none?` |
-| `destroy_all` (no scope) | `count.zero?` |
-| `destroy_all { scope }` | `scope.none?` |
-
-**Note:** `verify` without a block raises `ArgumentError` for non-bulk sanitizers.
-
-#### Custom Default Verification Policy
-
-Override the global default with any callable (lambda, proc, or class with `.call`):
+Uses low BCrypt cost (4) for speed. All scrubbed users get the same password so devs can log in.
 
 ```ruby
-Pumice.configure do |config|
-  config.default_verification = MyCustomVerificationPolicy
-end
+scrub(:encrypted_password) { fake_password }                # hash of 'password123'
+scrub(:encrypted_password) { fake_password('testpass') }    # custom password
+```
 
-class MyCustomVerificationPolicy
-  def self.call(model_class, bulk_operation)
-    case bulk_operation[:type]
-    when :truncate
-      -> { count.zero? }
-    when :delete, :destroy
-      bulk_operation[:scope] || -> { count.zero? }
+### `match_length`
+
+Generates text approximating the original value's length. Respects column constraints.
+
+```ruby
+scrub(:bio) { |value| match_length(value, use: :paragraph) }
+scrub(:code) { |value| match_length(value, use: :characters) }  # random alphanumeric
+```
+
+| Generator | Best for |
+|---|---|
+| `:sentence` | Bios, comments (default) |
+| `:paragraph` | Long-form content |
+| `:word` | Short fields, names |
+| `:characters` | Codes, tokens |
+
+### `fake_json`
+
+Sanitizes JSON structures. Strings become random words, numbers become `0`, booleans and `nil` are preserved.
+
+```ruby
+scrub(:preferences) { |value| fake_json(value) }                          # replace values, keep keys
+scrub(:metadata) { |value| fake_json(value, preserve_keys: false) }       # clear to {}
+scrub(:config) { |value| fake_json(value, keep: ['api_version']) }         # preserve specific keys
+scrub(:data) { |value| fake_json(value, keep: ['user.profile.email']) }    # dot notation for nesting
+```
+
+### Custom helpers
+
+Extend `Pumice::Helpers` for project-specific needs:
+
+```ruby
+# config/initializers/pumice_helpers.rb
+module Pumice
+  module Helpers
+    def fake_student_id(record)
+      "STU-#{record.school_id}-#{sprintf('%04d', record.id)}"
+    end
+
+    def redact(value, show_last: 4)
+      return nil if value.blank?
+      "#{'*' * (value.length - show_last)}#{value.last(show_last)}"
     end
   end
 end
@@ -587,714 +305,382 @@ end
 
 ---
 
-## Hard Scrubbing
+## Rake Tasks
 
-Hard scrubbing permanently replaces PII in database records. Use for creating sanitized dev/review databases.
-
-### Rake Tasks
+### Inspection
 
 ```bash
-# Analyze database for pruning candidates (RECOMMENDED - run first)
-docker compose run --rm web bundle exec rake db:prune:analyze
-
-# Generate scrubbed database dump (RECOMMENDED - source never modified)
-# Creates temp database, scrubs it, exports dump, cleans up temp
-docker compose run --rm web bundle exec rake db:scrub:generate
-
-# With custom export path
-EXPORT_PATH=tmp/my-dump.sql.gz docker compose run --rm web bundle exec rake db:scrub:generate
-
-# List available sanitizers
-docker compose run --rm web bundle exec rake db:scrub:list
-
-# Lint sanitizers for missing column coverage
-docker compose run --rm web bundle exec rake db:scrub:lint
-
-# Dry run all sanitizers (no changes made)
-docker compose run --rm web bundle exec rake db:scrub:test
-
-# Dry run specific sanitizers
-docker compose run --rm web bundle exec rake 'db:scrub:test[users,schools]'
-
-# Validate no PII remains in current database
-docker compose run --rm web bundle exec rake db:scrub:validate
-
-# Safe scrub - copy to persistent target database (interactive)
-docker compose run --rm web bundle exec rake db:scrub:safe
-
-# Safe scrub - CI mode with explicit confirmation
-docker compose run --rm web bundle exec rake 'db:scrub:safe_confirmed[target_db_name]'
+rake db:scrub:list         # list registered sanitizers and their friendly names
+rake db:scrub:lint         # check all columns are defined (scrub or keep), exits 1 on issues
+rake db:scrub:validate     # check scrubbed DB for PII leaks (real emails, uncleared tokens)
+rake db:scrub:analyze      # show top 20 tables by size, row counts for sensitive tables
 ```
 
-### Dry Run / Testing
-
-Use `db:scrub:test` to preview scrubbing without making any changes. No confirmation prompt required.
+### Safe operations (source never modified)
 
 ```bash
-# Dry run all sanitizers
-docker compose run --rm web bundle exec rake db:scrub:test
-
-# Dry run specific sanitizers
-docker compose run --rm web bundle exec rake 'db:scrub:test[users,messages]'
-
-# With verbose output
-VERBOSE=true docker compose run --rm web bundle exec rake 'db:scrub:test[users]'
+rake db:scrub:test                    # dry run all sanitizers
+rake 'db:scrub:test[users,messages]'  # dry run specific sanitizers
+rake db:scrub:generate                # create temp DB, scrub, export dump, cleanup
+rake db:scrub:safe                    # copy to target DB, scrub target (interactive)
+rake 'db:scrub:safe_confirmed[mydb]'  # same, but auto-confirmed for CI
 ```
 
-### Destructive Operations (Use with Caution)
-
-These commands modify the current database **in-place**. Only use on disposable dev/test databases:
+### Destructive operations (modifies current DATABASE_URL)
 
 ```bash
-# Scrub current database (DESTRUCTIVE - modifies DATABASE_URL)
-docker compose run --rm web bundle exec rake db:scrub:all
-
-# Preview changes without modifying (equivalent to db:scrub:test)
-DRY_RUN=true docker compose run --rm web bundle exec rake db:scrub:all
-
-# Scrub specific tables only (DESTRUCTIVE)
-docker compose run --rm web bundle exec rake 'db:scrub:only[users,messages]'
+rake db:scrub:all                     # scrub current DB in-place (interactive confirmation)
+rake 'db:scrub:only[users,messages]'  # scrub specific tables in-place
 ```
 
-### Programmatic Usage
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `DRY_RUN=true` | Log changes without persisting |
+| `VERBOSE=true` | Detailed progress output |
+| `PRUNE=false` | Disable pruning without changing config |
+| `SOURCE_DATABASE_URL` | Source DB for safe scrub |
+| `TARGET_DATABASE_URL` | Target DB for safe scrub |
+| `SCRUBBED_DATABASE_URL` | Alternative to `TARGET_DATABASE_URL` |
+| `EXPORT_PATH` | Path to export scrubbed dump |
+| `EXCLUDE_INDEXES=true` | Exclude indexes/triggers/constraints from dump |
+| `EXCLUDE_MATVIEWS=false` | Include materialized views in dump (excluded by default) |
+
+---
+
+## Configuration
+
+Create an initializer. All settings have sensible defaults — only override what you need.
 
 ```ruby
-# Sanitize a single record (returns hash, does not persist)
-UserSanitizer.sanitize(user)
-# => { email: "user_123@example.test", first_name: "Jane", ... }
+# config/initializers/sanitization.rb
+Pumice.configure do |config|
+  # Column coverage enforcement (default: true)
+  # Raises if a sanitizer doesn't define every column as scrub or keep
+  config.strict = true
 
-# Sanitize and persist
-UserSanitizer.scrub!(user)
+  # Tables to report row counts for in db:scrub:analyze (default: [])
+  config.sensitive_tables = %w[users messages student_profiles]
 
-# Sanitize a single attribute
-UserSanitizer.sanitize(user, :email)
-# => "user_123@example.test"
-
-# Batch sanitize all records
-UserSanitizer.scrub_all!
+  # Email domains that indicate real PII — validation fails if found (default: [])
+  config.sensitive_email_domains = %w[gmail.com yahoo.com hotmail.com]
+end
 ```
+
+### Full options reference
+
+| Option | Default | Description |
+|---|---|---|
+| `verbose` | `false` | Increase console output detail |
+| `strict` | `true` | Raise if sanitizer columns are undefined |
+| `continue_on_error` | `false` | Continue on sanitizer failure vs halt |
+| `allow_keep_undefined_columns` | `true` | Allow `keep_undefined_columns!` DSL |
+| `sensitive_tables` | `[]` | Tables to analyze for row counts |
+| `sensitive_email_domains` | `[]` | Domains indicating real PII |
+| `sensitive_email_model` | `'User'` | Model to query for email validation |
+| `sensitive_email_column` | `'email'` | Column for email lookup |
+| `sensitive_token_columns` | `%w[reset_password_token confirmation_token]` | Token columns to verify are cleared |
+| `sensitive_external_id_columns` | `[]` | External ID columns to verify are cleared |
+| `on_raw_method_conflict` | `:skip` | Handle `raw_*` method conflicts: `:skip`, `:warn`, `:raise` |
+| `source_database_url` | `nil` | Source DB for safe scrub (`:auto` to derive from Rails config) |
+| `target_database_url` | `nil` | Target DB for safe scrub |
+| `export_path` | `nil` | Path to export scrubbed dump |
+| `export_format` | `:custom` | `:custom` (pg_dump -Fc) or `:plain` (SQL) |
+| `require_readonly_source` | `false` | Enforce read-only source (error vs warn) |
+| `soft_scrubbing` | `false` | Runtime PII masking — set to hash to enable |
+| `pruning` | `false` | Pre-sanitization record pruning — set to hash to enable |
 
 ---
 
 ## Safe Scrub
 
-Safe Scrub creates a sanitized copy of your database without ever modifying the source. This is the recommended approach for production environments where you need a scrubbed database for development or testing.
+Safe Scrub creates a sanitized copy of your database without modifying the source. This is the recommended workflow for production environments.
 
-### How It Works
-
-1. **Copy**: Creates a fresh target database and copies all data from source
-2. **Scrub**: Runs all sanitizers against the target (source untouched)
-3. **Verify**: Validates no PII remains in the scrubbed database
-4. **Export** (optional): Generates a dump file for distribution
-
-### Safety Guarantees
-
-- **Source database is NEVER modified** - read-only access only
-- **Target cannot be `DATABASE_URL`** - prevents accidental production overwrites
-- **Explicit confirmation required** - must type target database name to proceed
-- **Source ≠ Target validation** - fails if URLs point to the same database
-- **Write-access detection** - warns (or errors) if source credentials can write
-
-### Credential Security (Recommended)
-
-For maximum safety, use **separate database credentials** with appropriate permissions:
-
-```sql
--- On SOURCE database (production) - READ ONLY
-CREATE ROLE pumice_readonly WITH LOGIN PASSWORD 'readonly_secret';
-GRANT CONNECT ON DATABASE myapp_production TO pumice_readonly;
-GRANT USAGE ON SCHEMA public TO pumice_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO pumice_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO pumice_readonly;
-
--- On TARGET database server - FULL ACCESS
-CREATE ROLE pumice_writer WITH LOGIN PASSWORD 'writer_secret';
-CREATE DATABASE myapp_scrubbed OWNER pumice_writer;
--- Or grant full access if database exists:
-GRANT ALL PRIVILEGES ON DATABASE myapp_scrubbed TO pumice_writer;
-```
-
-Then use separate credentials in your URLs:
-
-```bash
-# Source: read-only user (can only SELECT)
-SOURCE_DATABASE_URL=postgres://pumice_readonly:readonly_secret@prod-host/myapp_production
-
-# Target: full access user (can CREATE, DROP, INSERT, etc.)
-TARGET_DATABASE_URL=postgres://pumice_writer:writer_secret@scrub-host/myapp_scrubbed
-```
-
-**Why this matters:** Even if URLs are accidentally swapped, the read-only credential physically cannot modify your production database.
-
-### Write-Access Detection
-
-Safe Scrub automatically detects if your source credentials have write access and warns you:
+### Flow
 
 ```
-SECURITY WARNING: Source database credentials have WRITE access!
+rake db:scrub:generate
+├─ Create temp database
+├─ Copy source → temp
+├─ Run global pruning (if configured)
+├─ Run all sanitizers
+├─ Export dump file
+└─ Drop temp database
 
-For maximum safety, the source connection should be read-only.
-This prevents accidental modifications to your production database.
-```
-
-To enforce read-only source (fail instead of warn):
-
-```ruby
-Pumice.configure do |config|
-  config.require_readonly_source = true  # Error if source has write access
-end
-```
-
-Or per-invocation:
-
-```ruby
-Pumice::SafeScrubber.new(
-  source_url: ENV['SOURCE_DATABASE_URL'],
-  target_url: ENV['TARGET_DATABASE_URL'],
-  require_readonly_source: true
-).run
+rake db:scrub:safe
+├─ Validate source ≠ target
+├─ Confirm target DB name (interactive or argument)
+├─ Drop and recreate target
+├─ Copy source → target
+├─ Run global pruning
+├─ Run sanitizers
+├─ Verify
+└─ Export (if configured)
 ```
 
 ### Configuration
 
 ```ruby
-# config/initializers/sanitization.rb
 Pumice.configure do |config|
-  # Auto-detect source from Rails database.yml (no env vars needed locally)
+  # Auto-detect source from database.yml (works in Docker dev with zero env vars)
   config.source_database_url = :auto unless Rails.env.production?
-  # Or set explicitly for production:
+
+  # Or set explicitly
   # config.source_database_url = ENV['DATABASE_URL']
 
-  config.target_database_url = ENV['SCRUBBED_DATABASE_URL']  # Where to create copy
-  config.export_path = "tmp/scrubbed_#{Date.today}.dump"     # Optional export
-  config.export_format = :custom                              # :custom (pg_dump -Fc) or :plain (SQL)
+  config.target_database_url = ENV['SCRUBBED_DATABASE_URL']
+  config.export_path = "tmp/scrubbed_#{Date.today}.dump"
+  config.export_format = :custom  # :custom (pg_dump -Fc) or :plain (SQL)
 end
 ```
 
-#### Auto-detecting Source Database URL
+When `source_database_url` is `:auto`, Pumice derives the URL from `ActiveRecord::Base.connection_db_config`. This means `rake db:scrub:generate` works locally with no env vars.
 
-When `source_database_url` is set to `:auto`, Pumice derives the URL from `ActiveRecord::Base.connection_db_config` at runtime:
+Environment variables (`SOURCE_DATABASE_URL`) always take precedence over config.
 
-- **Development/test** (component-based `database.yml`): builds `postgresql://user@host:port/database`
-- **Staging/production** (URL-based `database.yml`): returns the `url:` value directly
+### Safety guarantees
 
-This means `rake db:scrub:generate` works in Docker dev with zero env vars:
+- Source database is **never modified** — read-only access
+- Target cannot equal `DATABASE_URL` — prevents accidental production writes
+- Source and target must differ — validated at startup
+- Interactive confirmation — must type the target DB name
+- Write-access detection — warns (or errors) if source credentials can write
+
+### Read-only source credentials (recommended)
+
+```sql
+-- On source (production): read-only
+CREATE ROLE pumice_readonly WITH LOGIN PASSWORD 'readonly_secret';
+GRANT CONNECT ON DATABASE myapp_production TO pumice_readonly;
+GRANT USAGE ON SCHEMA public TO pumice_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO pumice_readonly;
+
+-- On target: full access
+CREATE ROLE pumice_writer WITH LOGIN PASSWORD 'writer_secret';
+CREATE DATABASE myapp_scrubbed OWNER pumice_writer;
+```
 
 ```bash
-docker compose run --rm web bundle exec rake db:scrub:generate
+SOURCE_DATABASE_URL=postgres://pumice_readonly:readonly_secret@prod-host/myapp_production
+TARGET_DATABASE_URL=postgres://pumice_writer:writer_secret@scrub-host/myapp_scrubbed
 ```
 
-Env vars (`SOURCE_DATABASE_URL`) still override when provided.
+Even if URLs are swapped, the read-only credential cannot modify production.
 
-### Rake Tasks
-
-#### Interactive Mode (Manual Confirmation)
-
-```bash
-# Prompts you to type the target database name to confirm
-SOURCE_DATABASE_URL=postgres://prod-host/myapp \
-TARGET_DATABASE_URL=postgres://localhost/myapp_scrubbed \
-docker compose run --rm web bundle exec rake db:scrub:safe
-```
-
-Output:
-```
-========================================
-Safe Database Scrub
-========================================
-
-This will:
-  1. Create a fresh copy of the source database
-  2. Scrub all PII from the copy
-  3. Verify the scrubbed data
-
-The source database will NOT be modified.
-
-WARNING: This will DESTROY and RECREATE the target database!
-
-  Target database: myapp_scrubbed
-  Target host:     localhost
-
-All existing data in 'myapp_scrubbed' will be permanently deleted.
-
-Type the database name 'myapp_scrubbed' to confirm: _
-```
-
-#### CI/Background Mode (Explicit Confirmation)
-
-For automated pipelines, pass the target database name as an argument:
-
-```bash
-# The argument must match the actual target database name
-TARGET_DATABASE_URL=postgres://localhost/myapp_scrubbed \
-docker compose run --rm web bundle exec rake 'db:scrub:safe_confirmed[myapp_scrubbed]'
-```
-
-This ensures:
-- No interactive prompt blocks CI
-- Explicit acknowledgment of the target database
-- Fails if argument doesn't match target
-
-#### With Export
-
-```bash
-SOURCE_DATABASE_URL=postgres://prod-host/myapp \
-TARGET_DATABASE_URL=postgres://localhost/myapp_scrubbed \
-EXPORT_PATH=tmp/scrubbed.dump \
-docker compose run --rm web bundle exec rake db:scrub:safe
-```
-
-### Programmatic Usage
+To enforce read-only source (error instead of warning):
 
 ```ruby
-# Interactive (prompts for confirmation)
-Pumice::SafeScrubber.new(
-  source_url: ENV['DATABASE_URL'],
-  target_url: ENV['SCRUBBED_DATABASE_URL'],
-  export_path: 'tmp/scrubbed.dump'
-).run
-
-# Auto-confirmed (for scripts/CI)
-Pumice::SafeScrubber.new(
-  source_url: ENV['DATABASE_URL'],
-  target_url: ENV['SCRUBBED_DATABASE_URL'],
-  confirm: true  # Skip interactive prompt
-).run
-
-# Require confirmation but fail if not provided
-Pumice::SafeScrubber.new(
-  source_url: ENV['DATABASE_URL'],
-  target_url: ENV['SCRUBBED_DATABASE_URL'],
-  confirm: false  # Raises ConfigurationError
-).run
+config.require_readonly_source = true
 ```
 
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `SOURCE_DATABASE_URL` | Database to copy from (falls back to config, then `DATABASE_URL`) |
-| `TARGET_DATABASE_URL` | Database to create scrubbed copy in |
-| `SCRUBBED_DATABASE_URL` | Alternative to `TARGET_DATABASE_URL` |
-| `EXPORT_PATH` | Path to write the scrubbed dump file |
-
-**Resolution order for source URL:** `SOURCE_DATABASE_URL` → `config.source_database_url` (`:auto` or string) → `DATABASE_URL`
-
-### Error Handling
-
-Safe Scrub raises `Pumice::ConfigurationError` for:
-
-- Missing source or target URL
-- Source and target pointing to the same database
-- Target matching the primary `DATABASE_URL`
-- Confirmation mismatch (typed name doesn't match target)
-
-Safe Scrub raises `Pumice::SourceWriteAccessError` when:
-
-- `require_readonly_source = true` and source credentials have write access
-
-```ruby
-begin
-  Pumice::SafeScrubber.new(
-    source_url: ENV['DATABASE_URL'],
-    target_url: ENV['DATABASE_URL']  # Same as source!
-  ).run
-rescue Pumice::ConfigurationError => e
-  puts e.message
-  # => "SAFETY ERROR: source and target cannot be the same database!"
-end
-```
-
-### Heroku Example
+### CI mode
 
 ```bash
-# Create a follower database for scrubbing
-heroku addons:create heroku-postgresql:standard-0 \
-  --fork DATABASE_URL \
-  --app myapp
-
-# Wait for fork to complete
-heroku pg:wait --app myapp
-
-# Get the new database URL
-heroku config:get HEROKU_POSTGRESQL_COPPER_URL --app myapp
-
-# Run safe scrub (replace COPPER with your addon color)
-heroku run \
-  "SOURCE_DATABASE_URL=\$DATABASE_URL \
-   TARGET_DATABASE_URL=\$HEROKU_POSTGRESQL_COPPER_URL \
-   bundle exec rake 'db:scrub:safe_confirmed[myapp_scrubbed]'" \
-  --app myapp
+# Auto-confirmed — argument must match target DB name or the task fails
+rake 'db:scrub:safe_confirmed[myapp_scrubbed]'
 ```
+
+### Programmatic usage
+
+```ruby
+Pumice::SafeScrubber.new(
+  source_url: ENV['DATABASE_URL'],
+  target_url: ENV['SCRUBBED_DATABASE_URL'],
+  export_path: 'tmp/scrubbed.dump',
+  confirm: true  # skip interactive prompt
+).run
+```
+
+### Error types
+
+| Error | Cause |
+|---|---|
+| `Pumice::ConfigurationError` | Missing URL, source = target, target = DATABASE_URL, confirmation mismatch |
+| `Pumice::SourceWriteAccessError` | `require_readonly_source = true` and source has write access |
 
 ---
 
 ## Pruning
 
-Pruning removes old records from tables before sanitization to reduce dataset size. This is useful for large tables like logs, events, or audit trails where historical data isn't needed in development environments.
+Removes old records before sanitization to reduce dataset size. Useful for log tables, audit trails, and event streams.
 
-### How It Works
-
-Pruning runs in two places:
-
-1. **Global pruning** runs first (before sanitizers) when configured via `config.pruning`
-2. **Per-sanitizer pruning** runs within each sanitizer's `scrub_all!` via the `prune` DSL
-
-In the Safe Scrub workflow:
-
-```
-SafeScrubber.run
-├─ Create fresh target database
-├─ Copy data from source → target
-├─ Global pruning ← (removes records older/newer than threshold)
-├─ Run sanitizers (each may have its own prune step)
-├─ Verify scrubbed data
-└─ Export
-```
-
-### Analyzing Pruning Candidates
-
-Before configuring pruning, use the analyzer to identify which tables are good candidates:
+### Analyze first
 
 ```bash
-# Analyze with default settings (90 days, 10 MB min size, 1000 min rows)
-docker compose run --rm web bundle exec rake db:prune:analyze
+rake db:prune:analyze
 
-# Customize analysis parameters
-RETENTION_DAYS=30 MIN_SIZE=50000000 MIN_ROWS=5000 \
-  docker compose run --rm web bundle exec rake db:prune:analyze
+# Customize thresholds
+RETENTION_DAYS=30 MIN_SIZE=50000000 MIN_ROWS=5000 rake db:prune:analyze
 ```
 
-The analyzer categorizes tables by confidence level:
+The analyzer categorizes tables by confidence:
 
-**High Confidence** - Log tables with >50% old records and no foreign key dependencies
-**Medium Confidence** - Log tables OR >70% old records, but no dependencies
-**Low Confidence** - Everything else (review carefully before pruning)
+- **High**: Log tables, >50% old records, no foreign key dependencies
+- **Medium**: Log tables OR >70% old, no dependencies
+- **Low**: Everything else — review before pruning
 
-Example output:
-
-```
-========================================
-Database Pruning Analysis
-========================================
-
-Analyzing tables with retention: 90 days
-Minimum table size: 10.00 MB
-Minimum row count: 1000
-
-High Confidence Candidates (3)
-Log tables with >50% old records and no dependencies
-
-  student_portal_sessions            8.95 GB
-    1,234,567 rows, 87.3% older than 90 days
-    Potential savings: 7.81 GB
-
-  ifl_voice_logs                     3.92 GB
-    892,345 rows, 92.1% older than 90 days
-    Potential savings: 3.61 GB
-
-----------------------------------------
-
-Recommended Configuration:
-
-Add to config/initializers/sanitization.rb:
-
-  config.pruning = {
-    older_than: 90.days,
-    column: :created_at,
-    only: %w[
-      student_portal_sessions
-      ifl_voice_logs
-      email_logs
-    ]
-  }
-
-Estimated space savings: 15.23 GB
-```
-
-### Configuration
+### Configure
 
 ```ruby
 Pumice.configure do |config|
   config.pruning = {
-    older_than: 90.days,          # Delete records older than this (mutually exclusive with newer_than)
-    # newer_than: 30.days,        # Or delete records newer than this
-    column: :created_at,          # Timestamp column to check (default)
-    on_conflict: :warn,           # :warn, :raise, or :rollback (see Conflict Detection)
-    only: %w[logs events],        # Prune ONLY these tables
+    older_than: 90.days,          # required (mutually exclusive with newer_than)
+    column: :created_at,          # default
+    except: %w[users messages],   # never prune these (mutually exclusive with only)
+    on_conflict: :warn,           # when global + sanitizer prune overlap: :warn, :raise, :rollback
 
     analyzer: {
-      table_patterns: %w[portal_session conference_session],  # Domain-specific log patterns
-      min_table_size: 10_000_000,   # 10 MB - skip smaller tables (default)
-      min_row_count: 1000           # Skip tables with fewer rows (default)
+      table_patterns: %w[portal_session voice_log],  # domain-specific log patterns
+      min_table_size: 10_000_000,                      # 10 MB (default)
+      min_row_count: 1000                              # default
     }
   }
 end
 ```
 
-### Options
+### Execution order
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `older_than` | Delete records older than this duration | - |
-| `newer_than` | Delete records newer than this duration | - |
-| `column` | Timestamp column to check | `:created_at` |
-| `on_conflict` | Behavior when global pruning overlaps a sanitizer's `prune` | `:warn` |
-| `only` | Whitelist: prune ONLY these tables | `[]` |
-| `except` | Blacklist: never prune these tables | `[]` |
-| `analyzer.table_patterns` | Domain-specific patterns for identifying log tables | `[]` |
-| `analyzer.min_table_size` | Minimum table size in bytes for analysis | `10_000_000` |
-| `analyzer.min_row_count` | Minimum row count for analysis | `1000` |
+Global pruning runs first (before any sanitizers). Per-sanitizer `prune` runs within each sanitizer's `scrub_all!`. If a table appears in both, the `on_conflict` option controls behavior.
 
-**Note:** `older_than` and `newer_than` are mutually exclusive — specifying both raises `ArgumentError`. One must be provided. `only` and `except` are also mutually exclusive.
-
-### Analyzer Table Pattern Matching
-
-The analyzer uses pattern matching to identify log/activity tables. It includes universal patterns (log, event, activity, session, history, audit, track, analytic) and can be extended with domain-specific patterns:
-
-```ruby
-config.pruning = {
-  older_than: 90.days,
-  analyzer: {
-    # Add patterns specific to your application
-    table_patterns: %w[portal_session game_session conference_session voice_log]
-  }
-}
-```
-
-Tables matching these patterns are more likely to be categorized as "High Confidence" candidates for pruning.
-
-### Examples
-
-**Prune specific tables only:**
-
-```ruby
-config.pruning = {
-  older_than: 90.days,
-  only: %w[ifl_voice_logs ifl_voice_events audit_logs]
-}
-```
-
-**Prune all tables except critical ones:**
-
-```ruby
-config.pruning = {
-  older_than: 90.days,
-  except: %w[users messages tutor_sessions schools]
-}
-```
-
-**Custom timestamp column:**
-
-```ruby
-config.pruning = {
-  older_than: 30.days,
-  column: :recorded_at
-}
-```
-
-### Conflict Detection
-
-When a table appears in both the global `only` list and a sanitizer's `prune` DSL, the `on_conflict` option controls behavior:
-
-| Value | Behavior |
-|-------|----------|
-| `:warn` | Logs a warning and continues (default) |
-| `:raise` | Raises `Pumice::PruningConflictError` |
-| `:rollback` | Raises `ActiveRecord::Rollback` |
-
-The global pruner runs first, then the sanitizer's prune runs on survivors. This is usually fine — the warning is informational.
-
-### Disabling Pruning
-
-Disable pruning without changing config using the `PRUNE` environment variable:
+### Disable at runtime
 
 ```bash
-PRUNE=false docker compose run --rm web bundle exec rake db:scrub:generate
-```
-
-Or set `config.pruning = false` (the default).
-
-### Dry Run
-
-Use `DRY_RUN=true` to see what would be pruned without deleting:
-
-```bash
-DRY_RUN=true docker compose run --rm web bundle exec rake db:scrub:generate
-
-# Output:
-# >> Pruning old records...
-#    ifl_voice_logs: would prune 50000 records
-#    audit_logs: would prune 12000 records
-```
-
-### Edge Cases
-
-| Case | Handling |
-|------|----------|
-| Table has no timestamp column | Skipped silently |
-| Table has no corresponding model | Skipped silently |
-| Custom timestamp column | Set `column: :your_column` |
-
-### Custom Conditions
-
-For complex pruning conditions beyond simple date filtering, use the existing `delete_all` DSL in sanitizers:
-
-```ruby
-class AuditLogSanitizer < Pumice::Sanitizer
-  sanitizes :audit_log
-
-  # Complex condition: delete debug logs OR old records
-  delete_all { where(level: 'debug').or(where('created_at < ?', 30.days.ago)) }
-end
+PRUNE=false rake db:scrub:generate
 ```
 
 ---
 
 ## Soft Scrubbing
 
-Soft scrubbing masks data at read time without modifying the database. Use for runtime access control in production.
+Masks data at read time without modifying the database. Use for runtime access control — e.g., non-admin users see scrubbed PII, admins see real data.
 
-### Configuration
+### Enable
 
 ```ruby
 Pumice.configure do |config|
-  # Default: false (disabled). Set to hash to enable.
   config.soft_scrubbing = {
-    # Viewer context: user object, Proc, or Symbol
     context: :current_user,
-    # Scrub if viewer is nil or not admin
     if: ->(record, viewer) { viewer.nil? || !viewer.admin? }
   }
 end
 ```
 
-### Options
+When enabled, Pumice prepends an attribute interceptor on `ActiveRecord::Base`. On attribute read, the policy is checked. If it returns true, the `scrub` block runs and the scrubbed value is returned. The database is never modified.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `context` | Viewer context - Symbol, Proc, or user object | `nil` |
-| `if:` | Scrub when lambda returns **true** | - |
-| `unless:` | Scrub when lambda returns **false** | - |
+### Policy options
 
-**Note:** `if:` and `unless:` are mutually exclusive. If neither is specified, all data is scrubbed. This mirrors the familiar Rails callback pattern.
+| Option | Behavior |
+|---|---|
+| `if:` | Scrub when lambda returns **true** |
+| `unless:` | Scrub when lambda returns **false** |
+| Neither | Always scrub |
 
-### Setting Viewer Context
+Both receive `(record, viewer)`. They are mutually exclusive — `if:` takes precedence.
 
-The viewer context can be configured globally or set dynamically:
+### Setting viewer context
 
 ```ruby
-# Global context via config (Symbol resolves via record, Pumice, Current, or thread local)
-config.soft_scrubbing = { context: :current_user }
+# In ApplicationController
+before_action { Pumice.soft_scrubbing_context = current_user }
 
-# Or set dynamically in ApplicationController
-before_action :set_scrub_context
-
-def set_scrub_context
-  Pumice.soft_scrubbing_context = current_user
-end
-
-# Or use a block for scoped context
+# Or scoped
 Pumice.with_soft_scrubbing_context(current_user) do
-  # All reads within this block use current_user as viewer
-  @users = User.all
+  @users = User.all  # reads scrubbed for non-admins
 end
 ```
 
-### Condition Configuration
+The `context:` config option resolves a Symbol through: `record.method` → `Pumice.method` → `Current.method` → `Thread.current[:key]`.
 
-Use `if:` or `unless:` to control when scrubbing applies:
+### `raw_*` methods
 
-```ruby
-# Using if: (scrub when true)
-config.soft_scrubbing = {
-  if: ->(record, viewer) { viewer.nil? || !viewer.admin? }  # Scrub non-admins
-}
-
-# Using unless: (scrub when false)
-config.soft_scrubbing = {
-  unless: ->(record, viewer) { viewer&.admin? }  # Show real data to admins
-}
-```
-
-Both options receive `(record, viewer)` arguments. Choose whichever reads more naturally for your use case.
-
-### How It Works
-
-When soft scrubbing is enabled:
-
-1. `ActiveRecord::Base` is prepended with an attribute interceptor
-2. On attribute read, the policy is checked
-3. If policy returns `true`, the `scrub` block is called
-4. The scrubbed value is returned (original DB value unchanged)
+When a sanitizer declares `scrub(:email)`, Pumice auto-generates `raw_email` on the model. This bypasses soft scrubbing — essential for policy checks that read scrubbed attributes.
 
 ```ruby
-user = User.find(123)
-
-# Without context (or non-admin viewer)
-user.email  # => "user_123@example.test" (scrubbed)
-
-# With admin context
-Pumice.with_soft_scrubbing_context(admin_user) do
-  user.email  # => "john.doe@gmail.com" (real value)
-end
-```
-
-### Accessing Raw Attributes
-
-When a sanitizer declares `scrub(:email)`, Pumice automatically generates a `raw_email` method on the model. This lets policy checks access the real value without triggering soft scrubbing:
-
-```ruby
-# app/sanitizers/user_sanitizer.rb
-class UserSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email(record) }  # Automatically creates User#raw_email
-  scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
-end
-```
-
-```ruby
-# app/models/user.rb
 class User < ApplicationRecord
-  ADMIN_EMAILS = %w[admin@example.com super@example.com].freeze
-
   def admin?
-    # raw_email bypasses soft scrubbing - auto-generated from scrub(:email)
+    # raw_email bypasses soft scrubbing, preventing infinite recursion
     ADMIN_EMAILS.include?(raw_email)
   end
 end
 ```
 
-**Generated methods:**
+A generic `raw_attribute(:name)` method is also available.
 
-| Sanitizer Declaration | Generated Method |
-|-----------------------|------------------|
-| `scrub(:email)` | `raw_email` |
-| `scrub(:first_name)` | `raw_first_name` |
-| `scrub(:ssn)` | `raw_ssn` |
+### `on_raw_method_conflict`
 
-**Why is this needed?** When checking `viewer.admin?` in the policy, if `admin?` reads `self.email`, it triggers soft scrubbing, which checks the policy, which calls `admin?`... creating a circular dependency. Using `raw_email` reads directly from the database attributes, bypassing the interceptor.
+Controls behavior when `raw_*` conflicts with an existing method:
+
+| Value | Behavior |
+|---|---|
+| `:skip` | Silently skip (existing method wins) — **default** |
+| `:warn` | Log warning, continue |
+| `:raise` | Raise `Pumice::MethodConflictError` |
+
+---
+
+## Verification
+
+Post-operation checks to confirm sanitization succeeded. All verification raises `Pumice::VerificationError` on failure and is skipped during dry runs.
+
+### Table-level
 
 ```ruby
-# In config/initializers/sanitization.rb
-config.soft_scrubbing = {
-  # This policy calls viewer.admin?, which uses raw_email internally
-  unless: ->(_record, viewer) { viewer&.admin? }
-}
+verify "No real emails should remain" do
+  where("email LIKE '%@gmail.com'").none?
+end
 ```
 
-A generic `raw_attribute(:name)` method is also available for ad-hoc access to any attribute.
+The block runs in model scope. Return truthy for success.
+
+### Per-record
+
+```ruby
+verify_each "Email should be scrubbed" do |record|
+  !record.email.match?(/gmail|yahoo|hotmail/)
+end
+```
+
+### Inline (bulk operations)
+
+```ruby
+truncate!(verify: true)                              # verifies count.zero?
+delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
+destroy_all(verify: true) { where(attachable_id: nil) }
+```
+
+### Default verification for bulk operations
+
+| Operation | Default check |
+|---|---|
+| `truncate!` | `count.zero?` |
+| `delete_all` (no scope) | `count.zero?` |
+| `delete_all { scope }` | `scope.none?` |
+| `destroy_all` (no scope) | `count.zero?` |
+| `destroy_all { scope }` | `scope.none?` |
+
+Call `verify` without a block on a bulk sanitizer to use the default. Calling `verify` without a block on a non-bulk sanitizer raises `ArgumentError`.
+
+### Custom verification policy
+
+```ruby
+Pumice.configure do |config|
+  config.default_verification = ->(model_class, bulk_operation) {
+    case bulk_operation[:type]
+    when :truncate then -> { count.zero? }
+    when :delete, :destroy then bulk_operation[:scope] || -> { count.zero? }
+    end
+  }
+end
+```
 
 ---
 
 ## Testing
 
-### Testing Sanitizers
+### Sanitizer specs
 
 ```ruby
-# spec/sanitizers/user_sanitizer_spec.rb
-require 'rails_helper'
-
 RSpec.describe UserSanitizer do
   let(:user) { create(:user, email: 'real@gmail.com', first_name: 'John') }
 
@@ -1303,15 +689,13 @@ RSpec.describe UserSanitizer do
       result = described_class.sanitize(user)
 
       expect(result[:email]).to match(/user_\d+@example\.test/)
-      expect(result[:first_name]).not_to eq('John')
-      expect(user.reload.email).to eq('real@gmail.com')  # Unchanged
+      expect(user.reload.email).to eq('real@gmail.com')
     end
   end
 
   describe '.scrub!' do
     it 'persists sanitized values' do
       described_class.scrub!(user)
-
       expect(user.reload.email).to match(/user_\d+@example\.test/)
     end
   end
@@ -1325,29 +709,24 @@ RSpec.describe UserSanitizer do
 end
 ```
 
-### Testing Soft Scrubbing
+### Soft scrubbing specs
 
 ```ruby
-# spec/models/user_soft_scrubbing_spec.rb
-require 'rails_helper'
-
 RSpec.describe 'User soft scrubbing' do
   let(:user) { create(:user, email: 'real@gmail.com') }
   let(:admin) { create(:user, :admin) }
-  let(:regular_user) { create(:user) }
+  let(:regular) { create(:user) }
 
   before do
     Pumice.configure do |c|
-      c.soft_scrubbing = {
-        if: ->(record, viewer) { viewer.nil? || !viewer.admin? }
-      }
+      c.soft_scrubbing = { if: ->(record, viewer) { viewer.nil? || !viewer.admin? } }
     end
   end
 
   after { Pumice.reset! }
 
-  it 'scrubs data for non-admin viewers' do
-    Pumice.with_soft_scrubbing_context(regular_user) do
+  it 'scrubs for non-admins' do
+    Pumice.with_soft_scrubbing_context(regular) do
       expect(user.email).to match(/user_\d+@example\.test/)
     end
   end
@@ -1360,416 +739,99 @@ RSpec.describe 'User soft scrubbing' do
 end
 ```
 
-### Test Helpers
+### Test helpers
 
 ```ruby
 # spec/support/pumice_helpers.rb
 module PumiceHelpers
-  def with_soft_scrubbing(viewer: nil, scrub_unless: nil, scrub_if: nil, &block)
-    original_config = Pumice.config.instance_variable_get(:@soft_scrubbing)
+  def with_soft_scrubbing(viewer: nil, scrub_if: nil, scrub_unless: nil, &block)
+    original = Pumice.config.instance_variable_get(:@soft_scrubbing)
     config_hash = {}
-    config_hash[:unless] = scrub_unless if scrub_unless
     config_hash[:if] = scrub_if if scrub_if
+    config_hash[:unless] = scrub_unless if scrub_unless
     Pumice.configure { |c| c.soft_scrubbing = config_hash }
     Pumice.with_soft_scrubbing_context(viewer, &block)
   ensure
-    Pumice.config.instance_variable_set(:@soft_scrubbing, original_config)
+    Pumice.config.instance_variable_set(:@soft_scrubbing, original)
     Pumice.reset!
   end
 
-  def without_soft_scrubbing(&block)
-    original_config = Pumice.config.instance_variable_get(:@soft_scrubbing)
+  def without_soft_scrubbing
+    original = Pumice.config.instance_variable_get(:@soft_scrubbing)
     Pumice.configure { |c| c.soft_scrubbing = false }
     yield
   ensure
-    Pumice.config.instance_variable_set(:@soft_scrubbing, original_config)
+    Pumice.config.instance_variable_set(:@soft_scrubbing, original)
   end
 end
 
-RSpec.configure do |config|
-  config.include PumiceHelpers
-end
+RSpec.configure { |c| c.include PumiceHelpers }
 ```
 
 ---
 
-## Helpers Reference
+## Materialized Views
 
-Built-in helpers are available in all `scrub` blocks via the `Pumice::Helpers` module. These helpers generate realistic fake data while maintaining data integrity constraints.
+Pumice includes rake tasks for managing materialized views, which are relevant during safe scrub since view data is excluded from dumps by default.
 
-### Quick Reference
-
-| Helper | Description | Example Output |
-|--------|-------------|----------------|
-| `fake_email(record)` | Deterministic email from record | `user_123@example.test` |
-| `fake_phone(digits)` | Random phone number | `5551234567` |
-| `fake_password(pwd, cost:)` | BCrypt hash | `$2a$04$...` |
-| `fake_id(id, prefix:)` | Formatted ID string | `ID000123` |
-| `fake_json(value, preserve_keys:, keep:)` | Sanitize JSON structure | `{"name": "lorem"}` |
-| `match_length(value, use:)` | Text matching original length | `Lorem ipsum dolor...` |
-
-### `fake_email(record_or_prefix, prefix:, domain:, unique_id:)`
-
-Generates a deterministic, unique email address. Ensures the same record always produces the same fake email (important for data consistency across scrub runs).
-
-```ruby
-# Pass the record directly (recommended)
-scrub(:email) { fake_email(record) }
-# => "user_123@example.test"
-
-# Custom domain
-scrub(:email) { fake_email(record, domain: 'test.example.com') }
-# => "user_123@test.example.com"
-
-# Custom prefix instead of model name
-scrub(:email) { fake_email(prefix: 'contact', unique_id: record.id) }
-# => "contact123@example.test"
-
-# For non-record contexts
-scrub(:contact_email) { fake_email(prefix: 'contact', unique_id: record.id) }
+```bash
+rake db:matviews:list                    # list all materialized views with sizes
+rake db:matviews:refresh                 # refresh all materialized views
+rake 'db:matviews:refresh[view1,view2]'  # refresh specific views
 ```
 
-**Why deterministic?** If you scrub the same database twice, emails remain consistent. This preserves foreign key relationships and makes debugging easier.
+After restoring a scrubbed dump, refresh materialized views to rebuild their data:
 
-### `fake_phone(digits = 10)`
-
-Generates a random phone number with the specified number of digits.
-
-```ruby
-# Default 10 digits
-scrub(:phone) { fake_phone }
-# => "5551234567"
-
-# Shorter format (last 7 digits)
-scrub(:extension) { fake_phone(7) }
-# => "1234567"
-
-# For formatted fields, you may need to add formatting
-scrub(:formatted_phone) { |_| "(555) #{fake_phone(3)}-#{fake_phone(4)}" }
-# => "(555) 123-4567"
+```bash
+pg_restore -d myapp_dev tmp/scrubbed.dump && rake db:matviews:refresh
 ```
 
-### `fake_password(password = 'password123', cost: 4)`
-
-Generates a BCrypt password hash. Uses low cost factor (4) for speed during bulk scrubbing.
-
-```ruby
-# Default password
-scrub(:encrypted_password) { fake_password }
-# => "$2a$04$..." (hash of 'password123')
-
-# Custom password (all scrubbed users get same password for easy testing)
-scrub(:encrypted_password) { fake_password('testpass') }
-
-# Higher cost for production-like hashes (slower)
-scrub(:encrypted_password) { fake_password('secure', cost: 12) }
-```
-
-**Tip:** Use a known password like `'password123'` so developers can log in as any scrubbed user during testing.
-
-### `fake_id(id, prefix: 'ID')`
-
-Generates a formatted ID string with zero-padding.
-
-```ruby
-scrub(:external_id) { fake_id(record.id) }
-# => "ID000123"
-
-scrub(:student_number) { fake_id(record.id, prefix: 'STU') }
-# => "STU000123"
-
-scrub(:order_reference) { fake_id(record.id, prefix: 'ORD-') }
-# => "ORD-000123"
-```
-
-### `fake_json(value, preserve_keys: true, keep: [])`
-
-Sanitizes JSON data structures. Handles Hash, Array, or JSON strings.
-
-```ruby
-# Preserve structure but replace values (default)
-scrub(:preferences) { |value| fake_json(value) }
-# Input:  {"name": "John", "settings": {"theme": "dark"}}
-# Output: {"name": "lorem", "settings": {"theme": "ipsum"}}
-
-# Clear JSON entirely
-scrub(:metadata) { |value| fake_json(value, preserve_keys: false) }
-# => {}
-```
-
-**Value transformations with `preserve_keys: true`:**
-- Strings → Random word
-- Numbers → `0`
-- Booleans → Unchanged
-- `nil` → `nil`
-- Nested objects → Recursively processed
-
-```ruby
-# Complex nested JSON
-scrub(:profile_data) do |value|
-  fake_json(value)
-end
-# Input:  {"user": {"name": "John", "age": 30, "active": true}}
-# Output: {"user": {"name": "dolor", "age": 0, "active": true}}
-```
-
-#### Keeping Specific Keys
-
-Use the `keep` option to preserve specific values while scrubbing the rest. Supports dot notation and array notation for deeply nested paths.
-
-```ruby
-# Keep specific top-level keys
-scrub(:config) { |value| fake_json(value, keep: ['api_version', 'format']) }
-# Input:  {"api_version": "v2", "format": "json", "secret": "abc123"}
-# Output: {"api_version": "v2", "format": "json", "secret": "lorem"}
-
-# Keep deeply nested keys with dot notation
-scrub(:metadata) { |value| fake_json(value, keep: ['user.profile.email']) }
-# Input:  {"user": {"profile": {"email": "john@example.com", "name": "John"}}}
-# Output: {"user": {"profile": {"email": "john@example.com", "name": "lorem"}}}
-
-# Keep multiple paths, mixing dot and array notation
-scrub(:data) do |value|
-  fake_json(value, keep: ['user.email', ['metadata', 'id']])
-end
-
-# Keep values inside arrays using index notation
-scrub(:records) { |value| fake_json(value, keep: ['users.0.name']) }
-```
-
-### `match_length(value, use: :sentence)`
-
-Generates text that approximately matches the original value's length. Useful for maintaining column constraints and realistic data appearance.
-
-```ruby
-# Default: sentence-style text
-scrub(:bio) { |value| match_length(value) }
-# 50-char input => ~50 chars of "Lorem ipsum dolor sit amet..."
-
-# Paragraph style (for longer text)
-scrub(:description) { |value| match_length(value, use: :paragraph) }
-
-# Single word
-scrub(:nickname) { |value| match_length(value, use: :word) }
-
-# Random characters (for codes/tokens)
-scrub(:access_code) { |value| match_length(value, use: :characters) }
-# => "xKj9mNpQ2r"
-
-# Custom generator
-scrub(:custom_field) do |value|
-  match_length(value, use: -> { Faker::Company.buzzword })
-end
-```
-
-**Available generators:**
-| Symbol | Output Style | Best For |
-|--------|--------------|----------|
-| `:sentence` | Lorem ipsum sentences | Bios, descriptions, comments |
-| `:paragraph` | Multi-sentence paragraphs | Long-form content |
-| `:word` | Single word | Names, short fields |
-| `:characters` | Random alphanumeric | Codes, tokens, IDs |
-
-### Accessing Record Context
-
-All helpers have access to `record` - the ActiveRecord instance being sanitized:
-
-```ruby
-scrub(:display_name) do |value|
-  # Combine helpers with record data
-  "#{Faker::Name.first_name} (#{fake_id(record.id, prefix: '')})"
-end
-
-scrub(:slug) do |value|
-  # Use record associations
-  "#{record.organization&.slug}-#{fake_id(record.id, prefix: '')}"
-end
-```
-
-### Combining Helpers
-
-```ruby
-scrub(:contact_info) do |value|
-  {
-    email: fake_email(record),
-    phone: fake_phone,
-    address: Faker::Address.full_address
-  }.to_json
-end
-
-scrub(:notes) do |value|
-  next nil if value.blank?
-  match_length(value, use: :paragraph)
-end
-```
-
-### Creating Custom Helpers
-
-Extend the helpers module for project-specific needs:
-
-```ruby
-# config/initializers/pumice_helpers.rb
-module Pumice
-  module Helpers
-    def fake_student_id(record)
-      "STU-#{record.school_id}-#{sprintf('%04d', record.id)}"
-    end
-
-    def fake_grade_level
-      %w[K 1 2 3 4 5].sample
-    end
-
-    def redact(value, show_last: 4)
-      return nil if value.blank?
-      "#{'*' * (value.length - show_last)}#{value.last(show_last)}"
-    end
-  end
-end
-```
-
-Then use in sanitizers:
-
-```ruby
-class StudentSanitizer < Pumice::Sanitizer
-  scrub(:student_id) { fake_student_id(record) }
-  scrub(:grade) { fake_grade_level }
-  scrub(:ssn) { |value| redact(value, show_last: 4) }
-end
-```
+Set `EXCLUDE_MATVIEWS=false` to include materialized view data in the dump (skipping the need to refresh after restore).
 
 ---
 
-## Roadmap
+## Gotchas
 
-### Phase 1: Dynamic Attribute-Level Policies (Current Focus)
+### Strict mode and new columns
 
-Replace the global on/off policy with per-attribute, role-aware scrubbing:
+When `strict: true` (default), adding a column to a model without updating its sanitizer will raise an error on next scrub. Run `rake db:scrub:lint` in CI to catch this early.
 
-```ruby
-# Future API concept
-scrub :email do |value, viewer:|
-  return value if viewer&.admin?
-  fake_email(record)
-end
+### Bulk operations skip column validation
 
-scrub :ssn do |value, viewer:|
-  return value if viewer&.finance?
-  return "***-**-#{value[-4..]}" if viewer&.hr?
-  "***-**-****"
-end
+`truncate!`, `delete_all`, and `destroy_all` don't require `scrub`/`keep` declarations. Strict mode doesn't apply to them.
 
-scrub :credit_card do |value, viewer:|
-  case viewer&.role
-  when :finance then value
-  when :support then mask_card(value, show_last: 4)
-  else mask_card(value, show_last: 0)
-  end
-end
-```
+### Faker seeding
 
-### Phase 2: Secure Storage Integration
+Pumice seeds Faker with `record.id` before each record. This makes scrubbing **deterministic** — the same record always produces the same fake values. Important for consistency across runs.
 
-Pipe scrubbed database dumps directly to secure storage:
+### Protected columns
 
-```ruby
-Pumice::DumpGenerator.new(
-  output: :s3,
-  bucket: 'scrubbed-databases',
-  encryption: :aws_kms,
-  key_id: ENV['KMS_KEY_ID']
-).generate
+`id`, `created_at`, and `updated_at` are automatically excluded from column coverage checks. You never need to declare them.
 
-# Or stream to multiple destinations
-Pumice::DumpGenerator.new(
-  outputs: [
-    { type: :s3, bucket: 'primary-backups' },
-    { type: :gcs, bucket: 'secondary-backups' }
-  ]
-).generate
-```
+### Soft scrubbing circular dependency
 
-### Phase 3: Frontend JavaScript Support
+If your policy check reads a scrubbed attribute (e.g., `viewer.admin?` checks `viewer.email`), use the auto-generated `raw_email` method instead. Without this, the policy triggers scrubbing, which triggers the policy — infinite loop. Pumice includes a recursion guard as a safety net, but `raw_*` methods are the correct fix.
 
-Extend scrubbing to frontend views with inline hide/show and role-based exposure:
+### `source_database_url = :auto`
 
-```erb
-<%# Server renders data attributes, JS handles display %>
-<%= scrubbed_field @user, :email,
-    scrub_class: 'blur-sm',
-    reveal_roles: [:admin, :owner] %>
+Only works with PostgreSQL. Builds a URL from `ActiveRecord::Base.connection_db_config` components. Returns `nil` for non-PostgreSQL adapters.
 
-<%# Generates: %>
-<span
-  data-scrubbed="true"
-  data-field="email"
-  data-reveal-roles="admin,owner"
-  class="blur-sm"
->
-  user_123@example.test
-</span>
-```
+### Pruning mutual exclusivity
 
-```javascript
-// Frontend JS module
-import { Pumice } from 'pumice';
+- `older_than` and `newer_than` cannot both be set — raises `ArgumentError`
+- `only` and `except` cannot both be set — they are mutually exclusive
+- One of `older_than` or `newer_than` is required
 
-Pumice.configure({
-  currentUserRole: window.currentUser.role,
-  revealOnClick: true,
-  revealDuration: 5000,  // Auto-hide after 5 seconds
-  auditCallback: (field, action) => {
-    analytics.track('pii_reveal', { field, action });
-  }
-});
+### Global pruning and foreign keys
 
-// Programmatic reveal/hide
-Pumice.reveal('[data-field="email"]');
-Pumice.hide('[data-field="email"]');
+The global pruner skips tables with foreign key dependencies and logs a warning. Per-sanitizer `prune` does **not** check dependencies — that's on you.
 
-// Bulk operations
-Pumice.revealAll();
-Pumice.hideAll();
-```
+### Safe scrub connection management
 
-### Phase 4: Audit Logging
+Safe Scrub temporarily changes `ActiveRecord::Base.connection_db_config` to operate on the target. It always restores the original connection, even on error. Existing connections to the target are terminated before DROP/CREATE.
 
-Track who viewed what sensitive data and when:
+---
 
-```ruby
-Pumice.configure do |config|
-  config.audit_log = true
-  config.audit_backend = :database  # or :cloudwatch, :datadog
-  config.audit_events = [:reveal, :export, :bulk_access]
-end
+## License
 
-# Query audit logs
-Pumice::AuditLog.where(viewer: user, field: :ssn).last_30_days
-```
-
-### Phase 5: Data Classification DSL
-
-Define data classification tiers with inherited policies:
-
-```ruby
-Pumice.define_classification :pii do
-  scrub_for_roles except: [:admin]
-end
-
-Pumice.define_classification :financial do
-  scrub_for_roles except: [:admin, :finance]
-  audit_access true
-end
-
-Pumice.define_classification :health do
-  scrub_for_roles except: [:admin, :medical]
-  audit_access true
-  require_mfa_to_reveal true
-end
-
-class UserSanitizer < Pumice::Sanitizer
-  scrub :email, classification: :pii
-  scrub :ssn, classification: :pii
-  scrub :salary, classification: :financial
-  scrub :diagnosis, classification: :health
-end
-```
+MIT
