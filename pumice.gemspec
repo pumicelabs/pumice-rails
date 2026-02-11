@@ -5,7 +5,7 @@ require_relative "lib/pumice/version"
 Gem::Specification.new do |spec|
   spec.name          = "pumice"
   spec.version       = Pumice::VERSION
-  spec.authors       = ["Chapter One NFP"]
+  spec.authors       = ["Chapter One NFP", "Adam Cuppy"]
   spec.email         = ["dev@chapterone.org"]
   spec.summary       = "Database PII sanitization for Rails"
   spec.description   = "Declarative sanitizer DSL for scrubbing, pruning, and " \
