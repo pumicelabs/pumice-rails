@@ -292,10 +292,12 @@ Call `verify_all` without a block on a bulk sanitizer to use the default. Callin
 
 ```ruby
 Pumice.configure do |config|
-  config.default_verification = ->(model_class, bulk_operation) {
-    case bulk_operation[:type]
-    when :truncate then -> { count.zero? }
-    when :delete, :destroy then bulk_operation[:scope] || -> { count.zero? }
+  config.default_verification = ->(_model_class, operation) {
+    case operation[:type]
+    when :truncate
+      -> { count.zero? }
+    when :delete, :destroy
+      operation[:scope] || -> { count.zero? }
     end
   }
 end
@@ -723,11 +725,29 @@ end
 
 ## Testing
 
+### Setup
+
+```ruby
+# spec/rails_helper.rb
+require 'pumice/rspec'
+```
+
+This gives you:
+
+- **Auto-reset** — `Pumice.reset!` runs before each `type: :sanitizer` spec
+- **Auto-lint** — column coverage is verified automatically; incomplete sanitizers fail before examples run
+- **Path inference** — specs in `spec/sanitizers/` are automatically tagged `type: :sanitizer`
+- **Helpers** — `with_soft_scrubbing` and `without_soft_scrubbing` available in sanitizer specs
+- **Matchers** — `have_scrubbed(:attr)` and `have_kept(:attr)` for verifying sanitizer definitions
+
 ### Sanitizer specs
 
 ```ruby
-RSpec.describe UserSanitizer do
+# spec/sanitizers/user_sanitizer_spec.rb
+RSpec.describe UserSanitizer, type: :sanitizer do
   let(:user) { create(:user, email: 'real@gmail.com', first_name: 'John') }
+
+  # Column coverage is checked automatically — no need to add a lint test.
 
   describe '.sanitize' do
     it 'returns sanitized values without persisting' do
@@ -744,73 +764,57 @@ RSpec.describe UserSanitizer do
       expect(user.reload.email).to match(/user_\d+@example\.test/)
     end
   end
+end
+```
 
-  describe 'column coverage' do
-    it 'defines all columns' do
-      issues = described_class.lint!
-      expect(issues).to be_empty, -> { issues.join("\n") }
-    end
-  end
+To skip auto-lint for a specific sanitizer (e.g., during initial development):
+
+```ruby
+RSpec.describe UserSanitizer, type: :sanitizer, lint: false do
+  # ...
 end
 ```
 
 ### Soft scrubbing specs
 
 ```ruby
-RSpec.describe 'User soft scrubbing' do
+RSpec.describe 'User soft scrubbing', type: :sanitizer do
   let(:user) { create(:user, email: 'real@gmail.com') }
   let(:admin) { create(:user, :admin) }
   let(:regular) { create(:user) }
 
-  before do
-    Pumice.configure do |c|
-      c.soft_scrubbing = { if: ->(record, viewer) { viewer.nil? || !viewer.admin? } }
-    end
-  end
-
-  after { Pumice.reset! }
-
   it 'scrubs for non-admins' do
-    Pumice.with_soft_scrubbing_context(regular) do
+    with_soft_scrubbing(viewer: regular, scrub_if: ->(r, v) { !v.admin? }) do
       expect(user.email).to match(/user_\d+@example\.test/)
     end
   end
 
   it 'shows real data to admins' do
-    Pumice.with_soft_scrubbing_context(admin) do
+    with_soft_scrubbing(viewer: admin, scrub_if: ->(r, v) { !v.admin? }) do
       expect(user.email).to eq('real@gmail.com')
     end
   end
 end
 ```
 
-### Test helpers
+### Helpers reference
+
+| Helper | Use |
+|---|---|
+| `with_soft_scrubbing(viewer:, scrub_if:, scrub_unless:)` | Enable soft scrubbing for a block |
+| `without_soft_scrubbing { ... }` | Disable soft scrubbing for a block |
+| `have_scrubbed(:attr)` | Assert a sanitizer defines a scrub rule for `:attr` |
+| `have_kept(:attr)` | Assert a sanitizer marks `:attr` as kept |
+
+Both soft scrubbing helpers restore original config after the block, even on error.
 
 ```ruby
-# spec/support/pumice_helpers.rb
-module PumiceHelpers
-  def with_soft_scrubbing(viewer: nil, scrub_if: nil, scrub_unless: nil, &block)
-    original = Pumice.config.instance_variable_get(:@soft_scrubbing)
-    config_hash = {}
-    config_hash[:if] = scrub_if if scrub_if
-    config_hash[:unless] = scrub_unless if scrub_unless
-    Pumice.configure { |c| c.soft_scrubbing = config_hash }
-    Pumice.with_soft_scrubbing_context(viewer, &block)
-  ensure
-    Pumice.config.instance_variable_set(:@soft_scrubbing, original)
-    Pumice.reset!
-  end
-
-  def without_soft_scrubbing
-    original = Pumice.config.instance_variable_get(:@soft_scrubbing)
-    Pumice.configure { |c| c.soft_scrubbing = false }
-    yield
-  ensure
-    Pumice.config.instance_variable_set(:@soft_scrubbing, original)
-  end
+# Matcher examples
+RSpec.describe UserSanitizer, type: :sanitizer do
+  it { is_expected.to have_scrubbed(:email) }
+  it { is_expected.to have_scrubbed(:first_name) }
+  it { is_expected.to have_kept(:role) }
 end
-
-RSpec.configure { |c| c.include PumiceHelpers }
 ```
 
 ---
