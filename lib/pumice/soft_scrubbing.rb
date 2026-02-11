@@ -36,6 +36,16 @@ module Pumice
         end
       end
 
+      def reload(*)
+        @_soft_scrubbed_cache = nil
+        super
+      end
+
+      def write_attribute(attr_name, value)
+        @_soft_scrubbed_cache&.delete(attr_name.to_s)
+        super
+      end
+
       private
 
       def soft_scrubbed_value(attr_name, sanitizer)
