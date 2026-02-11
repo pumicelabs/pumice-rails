@@ -224,6 +224,8 @@ module Pumice
         end
       end
 
+      # Seeds Faker per-record for deterministic output. Thread-safe because
+      # Faker 3.x stores Config.random in Thread.current (gemspec requires >= 3.0).
       def with_seed_for(record)
         previous = Faker::Config.random
         Faker::Config.random = Random.new(record&.id || record.object_id)
