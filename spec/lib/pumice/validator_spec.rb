@@ -194,6 +194,14 @@ RSpec.describe Pumice::Validator do
       end
     end
 
+    context 'when sensitive_email_model does not exist' do
+      it 'raises NameError with a helpful message' do
+        Pumice.config.sensitive_email_model = 'NonexistentModel'
+
+        expect { validator.run }.to raise_error(NameError, /NonexistentModel.*config\.sensitive_email_model/)
+      end
+    end
+
     context 'external ID column checks' do
       before do
         Pumice.config.sensitive_external_id_columns = %w[clever_id]

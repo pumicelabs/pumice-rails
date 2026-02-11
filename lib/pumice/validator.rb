@@ -43,6 +43,10 @@ module Pumice
 
     def email_model
       @email_model ||= Pumice.config.sensitive_email_model.constantize
+    rescue NameError
+      raise NameError,
+        "Pumice validator: model '#{Pumice.config.sensitive_email_model}' not found. " \
+        "Set config.sensitive_email_model to your app's user model (e.g. 'Account', 'Member')."
     end
 
     def email_column
