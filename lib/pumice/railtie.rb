@@ -2,7 +2,10 @@
 
 module Pumice
   class Railtie < Rails::Railtie
-    # Load the generator when Rails loads generators
+    rake_tasks do
+      load File.expand_path("../tasks/db_scrub.rake", __dir__)
+    end
+
     generators do
       require_relative 'generators/sanitizer_generator'
     end

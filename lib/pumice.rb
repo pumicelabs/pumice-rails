@@ -4,7 +4,6 @@ require_relative 'pumice/version'
 
 module Pumice; end
 
-require_relative 'pumice/engine'
 require_relative 'pumice/configuration'
 require_relative 'pumice/output'
 require_relative 'pumice/helpers'
