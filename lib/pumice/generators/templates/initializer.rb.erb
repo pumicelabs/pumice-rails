@@ -1,0 +1,52 @@
+# frozen_string_literal: true
+
+Pumice.configure do |config|
+  # Raise if a sanitizer doesn't define every column as scrub or keep.
+  # Run `rake db:scrub:lint` to check coverage.
+  config.strict = true
+
+  # Tables containing PII to report in `rake db:scrub:analyze`.
+  # config.sensitive_tables = %w[users messages]
+
+  # Email domains that indicate real PII. Validation fails if found after scrubbing.
+  # config.sensitive_email_domains = %w[gmail.com yahoo.com hotmail.com]
+
+  # Token columns to verify are cleared (Devise defaults).
+  # config.sensitive_token_columns = %w[reset_password_token confirmation_token]
+
+  # External ID columns to verify are cleared.
+  # config.sensitive_external_id_columns = %w[clever_id google_id]
+
+  # --- Safe Scrub (copy-then-scrub workflow) ---
+
+  # Auto-detect source database from database.yml. No env vars needed locally.
+  # config.source_database_url = :auto unless Rails.env.production?
+
+  # Target database for scrubbed copy.
+  # config.target_database_url = ENV["SCRUBBED_DATABASE_URL"]
+
+  # Export path for scrubbed dump file.
+  # config.export_path = "tmp/scrubbed_#{Date.today}.dump"
+
+  # Export format: :custom (pg_dump -Fc) or :plain (SQL).
+  # config.export_format = :custom
+
+  # Enforce read-only source credentials (error instead of warning).
+  # config.require_readonly_source = true
+
+  # --- Pruning (remove old records before sanitization) ---
+
+  # config.pruning = {
+  #   older_than: 90.days,
+  #   column: :created_at,
+  #   except: %w[users messages],
+  #   on_conflict: :warn
+  # }
+
+  # --- Soft Scrubbing (runtime PII masking) ---
+
+  # config.soft_scrubbing = {
+  #   context: :current_user,
+  #   if: ->(record, viewer) { viewer.nil? || !viewer.admin? }
+  # }
+end

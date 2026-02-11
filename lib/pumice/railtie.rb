@@ -7,6 +7,7 @@ module Pumice
     end
 
     generators do
+      require_relative 'generators/install_generator'
       require_relative 'generators/sanitizer_generator'
     end
   end
