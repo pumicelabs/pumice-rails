@@ -260,6 +260,39 @@ RSpec.describe Pumice::DSL do
       issues = NonexistentModelSanitizer.lint!
       expect(issues.first).to include("doesn't exist")
     end
+
+    it 'warns when scrub is used with a terminal bulk operation' do
+      sanitizer = create_sanitizer do
+        sanitizes :users
+        truncate!
+        scrub(:email) { 'fake@example.com' }
+      end
+
+      issues = sanitizer.lint!
+      expect(issues.first).to include('terminal bulk operation')
+      expect(issues.first).to include('email')
+    end
+
+    it 'warns when keep is used with a terminal bulk operation' do
+      sanitizer = create_sanitizer do
+        sanitizes :users
+        delete_all
+        keep :status, :roles
+      end
+
+      issues = sanitizer.lint!
+      expect(issues.first).to include('terminal bulk operation')
+      expect(issues.first).to include('status')
+    end
+
+    it 'does not warn for bulk operations without scrub/keep' do
+      sanitizer = create_sanitizer do
+        sanitizes :users
+        truncate!
+      end
+
+      expect(sanitizer.lint!).to be_empty
+    end
   end
 
   describe 'keep_undefined_columns!' do

@@ -226,6 +226,11 @@ module Pumice
         issues << "#{name} (#{model_class.name}) has stale columns (removed from model): #{stale_columns.join(', ')}"
       end
 
+      if bulk_operation && (scrubbed.any? || kept.any?)
+        ignored = (scrubbed_columns + kept_columns).join(', ')
+        issues << "#{name} uses a terminal bulk operation (#{bulk_operation[:type]}) but also declares scrub/keep columns (#{ignored}). These will be ignored."
+      end
+
       issues
     rescue NameError, RuntimeError => e
       ["#{name} references a model that doesn't exist: #{e.message}"]
