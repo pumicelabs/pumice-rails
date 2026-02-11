@@ -42,28 +42,73 @@ rails generate pumice:install
 
 This creates [config/initializers/pumice.rb](config/initializers/pumice.rb) with commented defaults. The defaults work out of the box — customize later as needed.
 
-### 3. Generate a sanitizer
+### 3. Generate a sanitizer (and test)
 
 ```bash
-rails generate pumice:sanitizer User
+rails generate pumice:sanitizer User            # sanitizer + test (if applicable)
 ```
 
-This inspects your model's columns and generates [app/sanitizers/user_sanitizer.rb](app/sanitizers/user_sanitizer.rb) with smart defaults — PII columns get `scrub` blocks, credentials get cleared, and safe columns get `keep` declarations.
+This inspects your model's columns and generates `app/sanitizers/user_sanitizer.rb` — PII columns get `scrub` stubs, credentials get flagged, and safe columns get `keep` declarations. Every `scrub` block raises `NotImplementedError` until you define the logic.
+
+```bash
+rails generate pumice:sanitizer User              # stubs (you define scrub logic)
+rails generate pumice:sanitizer User --defaults   # pre-filled with Faker defaults
+rails generate pumice:sanitizer User --no-test    # skip test generation
+rails generate pumice:test User                   # test only (backfill existing sanitizers)
+```
+
+If your project uses RSpec (detected by the presence of `spec/`), a spec is generated with `have_scrubbed` and `have_kept` matchers. See [Testing](#testing) for the full RSpec integration.
 
 ### 4. Review and adjust the generated sanitizer
+
+Without `--defaults`, scrub blocks require you to define the logic:
 
 ```ruby
 # app/sanitizers/user_sanitizer.rb
 class UserSanitizer < Pumice::Sanitizer
+  # PII - scrub with fake data
+  scrub(:email) { raise NotImplementedError }
+  scrub(:first_name) { raise NotImplementedError }
+  scrub(:last_name) { raise NotImplementedError }
+
+  # Credentials - clear sensitive data
+  scrub(:encrypted_password) { raise NotImplementedError }
+
+  # Non-PII - safe to keep
+  keep :roles, :active
+end
+```
+
+With `--defaults`, blocks are pre-filled with smart Faker logic:
+
+```ruby
+# app/sanitizers/user_sanitizer.rb (--defaults)
+class UserSanitizer < Pumice::Sanitizer
   scrub(:email) { fake_email(record) }
   scrub(:first_name) { Faker::Name.first_name }
   scrub(:last_name) { Faker::Name.last_name }
-  scrub(:phone) { fake_phone }
-  scrub(:encrypted_password) { fake_password }
+  scrub(:encrypted_password) { nil }
 
-  keep :id, :created_at, :updated_at, :roles, :active
+  keep :roles, :active
 end
 ```
+
+| Column name contains | Pre-filled scrubbing definition |
+|---|---|
+| `email` | `fake_email(record)` (nil-safe when nullable) |
+| `phone`, `call_number` | `fake_phone` (nil-safe when nullable) |
+| `first_name` | `Faker::Name.first_name` |
+| `last_name` | `Faker::Name.last_name` |
+| `name`, `display_name`, `full_name` | `Faker::Name.name` |
+| `address`, `street` | `Faker::Address.street_address` |
+| `city` | `Faker::Address.city` |
+| `state` | `Faker::Address.state_abbr` |
+| `zip` | `Faker::Address.zip` |
+| `username`, `login` | `"user_#{record.id}"` |
+| `bio`, `description`, `notes` | `match_length(value, use: :paragraph)` |
+| other `text` columns | `match_length(value, use: :paragraph)` |
+| other `string` columns | `Faker::Lorem.word` |
+| **Credentials** (`password`, `token`, `secret`, `key`, `encrypted`, `oauth`, etc.) | `nil` |
 
 ### 5. Run it
 

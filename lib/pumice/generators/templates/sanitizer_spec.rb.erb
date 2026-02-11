@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+RSpec.describe <%= class_name %>Sanitizer, type: :sanitizer do
+<% pii_columns.each do |column| -%>
+  it { is_expected.to have_scrubbed(:<%= column.name %>) }
+<% end -%>
+<% credential_columns.each do |column| -%>
+  it { is_expected.to have_scrubbed(:<%= column.name %>) }
+<% end -%>
+<% keep_columns.each do |column| -%>
+  it { is_expected.to have_kept(:<%= column.name %>) }
+<% end -%>
+end

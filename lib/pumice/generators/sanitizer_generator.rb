@@ -9,8 +9,17 @@ module Pumice
 
       desc 'Generates a Pumice sanitizer with smart defaults for the given model'
 
+      class_option :test, type: :boolean, default: true, desc: 'Generate sanitizer spec'
+      class_option :defaults, type: :boolean, default: false, desc: 'Pre-fill scrub blocks with smart defaults'
+
       def create_sanitizer_file
         template 'sanitizer.rb.erb', File.join('app/sanitizers', class_path, "#{file_name}_sanitizer.rb")
+      end
+
+      def create_test_file
+        return unless options[:test] && File.directory?(Rails.root.join('spec'))
+
+        template 'sanitizer_spec.rb.erb', File.join('spec/sanitizers', class_path, "#{file_name}_sanitizer_spec.rb")
       end
 
       private
@@ -136,6 +145,10 @@ module Pumice
 
       def has_credential_columns?
         credential_columns.any?
+      end
+
+      def defaults?
+        options[:defaults]
       end
 
       def has_keep_columns?

@@ -6,14 +6,22 @@ class <%= class_name %>Sanitizer < Pumice::Sanitizer
 <% if has_pii_columns? -%>
   # PII - scrub with fake data
 <% pii_columns.each do |column| -%>
+<% if defaults? -%>
   scrub(:<%= column.name %>) <%= scrub_logic_for(column) %>
+<% else -%>
+  scrub(:<%= column.name %>) { raise NotImplementedError }
+<% end -%>
 <% end -%>
 <% end -%>
 <% if has_credential_columns? -%>
 
   # Credentials - clear sensitive data
 <% credential_columns.each do |column| -%>
+<% if defaults? -%>
   scrub(:<%= column.name %>) { nil }
+<% else -%>
+  scrub(:<%= column.name %>) { raise NotImplementedError }
+<% end -%>
 <% end -%>
 <% end -%>
 <% if has_keep_columns? -%>
