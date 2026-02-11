@@ -496,7 +496,7 @@ namespace :db do
         out.line("Add to config/initializers/sanitization.rb:")
         out.blank
         out.line("  config.pruning = {")
-        out.line("    retention: #{retention_days}.days,")
+        out.line("    older_than: #{retention_days}.days,")
         out.line("    column: :created_at,")
         out.line("    only: %w[")
         result.high_confidence.each do |c|
