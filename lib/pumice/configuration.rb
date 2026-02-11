@@ -17,7 +17,7 @@ module Pumice
                   :export_format,         # Export format: :custom (pg_dump -Fc) or :plain (SQL)
                   :require_readonly_source, # Enforce read-only source credentials (default: false, warns only)
                   # Pruning configuration
-                  :pruning                # Delete old records before sanitization (see pruning_config)
+                  :pruning               # Delete old records before sanitization (see pruning_config)
 
     attr_writer :soft_scrubbing
 

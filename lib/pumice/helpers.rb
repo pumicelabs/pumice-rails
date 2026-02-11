@@ -58,12 +58,9 @@ module Pumice
                raise TypeError, "fake_json expects Hash, Array, or JSON String, got #{value.class}"
              end
 
-      return {} unless preserve_keys
-
-      # Normalize keep paths to arrays for consistent comparison
       normalized_keep = normalize_keep_paths(keep)
 
-      scrub_json_values(data, keep_paths: normalized_keep)
+      scrub_json_values(data, preserve_keys: preserve_keys, keep_paths: normalized_keep)
     rescue JSON::ParserError => e
       raise TypeError, "fake_json received invalid JSON string: #{e.message}"
     end
@@ -100,17 +97,23 @@ module Pumice
       end
     end
 
-    def scrub_json_values(obj, keep_paths: [], current_path: [])
+    def scrub_json_values(obj, preserve_keys:, keep_paths: [], current_path: [])
       case obj
       when Hash
         obj.each_with_object({}) do |(key, value), result|
           new_path = current_path + [key.to_s]
-          result[key] = scrub_json_values(value, keep_paths: keep_paths, current_path: new_path)
+          kept = path_kept?(new_path, keep_paths)
+          new_key = if kept || preserve_keys
+                      key
+                    else
+                      Faker::Lorem.word
+                    end
+          result[new_key] = scrub_json_values(value, preserve_keys: preserve_keys, keep_paths: keep_paths, current_path: new_path)
         end
       when Array
         obj.map.with_index do |value, idx|
           new_path = current_path + [idx.to_s]
-          scrub_json_values(value, keep_paths: keep_paths, current_path: new_path)
+          scrub_json_values(value, preserve_keys: preserve_keys, keep_paths: keep_paths, current_path: new_path)
         end
       when String
         should_keep?(current_path, keep_paths) ? obj : Faker::Lorem.word
@@ -125,6 +128,14 @@ module Pumice
 
     def should_keep?(current_path, keep_paths)
       keep_paths.any? { |keep_path| keep_path == current_path }
+    end
+
+    # Returns true if this path is a keep path or an ancestor of one.
+    # Used to preserve keys along the path to a kept leaf value.
+    def path_kept?(current_path, keep_paths)
+      keep_paths.any? do |keep_path|
+        keep_path == current_path || keep_path[0, current_path.length] == current_path
+      end
     end
   end
 end

@@ -178,17 +178,77 @@ RSpec.describe Pumice::Helpers do
       expect(result).to be_nil
     end
 
-    it 'returns empty hash when preserve_keys is false' do
-      result = described_class.fake_json({ name: 'John' }, preserve_keys: false)
-
-      expect(result).to eq({})
-    end
-
-    it 'preserves keys when option set' do
+    it 'preserves keys by default' do
       input = { 'name' => 'John', 'age' => 30 }
-      result = described_class.fake_json(input, preserve_keys: true)
+      result = described_class.fake_json(input)
 
       expect(result.keys).to contain_exactly('name', 'age')
+    end
+
+    describe 'preserve_keys: false' do
+      it 'replaces keys with random words' do
+        input = { 'name' => 'John', 'age' => 30 }
+        result = described_class.fake_json(input, preserve_keys: false)
+
+        expect(result.keys).not_to include('name', 'age')
+        expect(result.size).to eq(2)
+      end
+
+      it 'preserves structure depth' do
+        input = { 'user' => { 'name' => 'John', 'scores' => [1, 2, 3] } }
+        result = described_class.fake_json(input, preserve_keys: false)
+
+        nested = result.values.first
+        expect(nested).to be_a(Hash)
+        expect(nested.size).to eq(2)
+        # One value should be an array of 3 zeroes
+        array_val = nested.values.find { |v| v.is_a?(Array) }
+        expect(array_val).to eq([0, 0, 0])
+      end
+
+      it 'scrubs values' do
+        input = { 'name' => 'John' }
+        result = described_class.fake_json(input, preserve_keys: false)
+
+        expect(result.values.first).to be_a(String)
+        expect(result.values.first).not_to eq('John')
+      end
+
+      it 'preserves array lengths' do
+        input = ['one', 'two', 'three']
+        result = described_class.fake_json(input, preserve_keys: false)
+
+        expect(result).to be_an(Array)
+        expect(result.length).to eq(3)
+      end
+
+      it 'preserves kept keys even when preserve_keys is false' do
+        input = { 'name' => 'John', 'email' => 'john@example.com' }
+        result = described_class.fake_json(input, preserve_keys: false, keep: ['email'])
+
+        expect(result).to have_key('email')
+        expect(result['email']).to eq('john@example.com')
+        expect(result.keys).not_to include('name')
+      end
+
+      it 'preserves ancestor keys along the path to a kept value' do
+        input = {
+          'user' => {
+            'profile' => {
+              'email' => 'john@example.com',
+              'name' => 'John'
+            }
+          }
+        }
+        result = described_class.fake_json(input, preserve_keys: false, keep: ['user.profile.email'])
+
+        expect(result).to have_key('user')
+        expect(result['user']).to have_key('profile')
+        expect(result['user']['profile']).to have_key('email')
+        expect(result['user']['profile']['email']).to eq('john@example.com')
+        # Non-kept sibling key should be randomized
+        expect(result['user']['profile'].keys).not_to include('name')
+      end
     end
 
     it 'scrubs string values' do

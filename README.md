@@ -117,7 +117,7 @@ Pumice.configure { |c| c.allow_keep_undefined_columns = false }
 
 ### Referencing other attributes in scrub blocks
 
-**Bare names** return scrubbed values. **`raw(:name)`** returns original database values.
+**Bare names** return scrubbed values. **`raw(:attribute_name)`** returns original database values.
 
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
@@ -280,14 +280,21 @@ scrub(:title) { |value| match_length(value, use: -> { Faker::Book.title }) }  # 
 
 ### `fake_json`
 
-Sanitizes JSON structures. Strings become random words, numbers become `0`, booleans and `nil` are preserved.
+Sanitizes JSON structures. Strings become random words, numbers become `0`, booleans and `nil` are preserved. Structure (nesting depth, array lengths) is always retained.
 
 ```ruby
-scrub(:preferences) { |value| fake_json(value) }                          # replace values, keep keys
-scrub(:metadata) { |value| fake_json(value, preserve_keys: false) }       # clear to {}
-scrub(:config) { |value| fake_json(value, keep: ['api_version']) }         # preserve specific keys
+scrub(:preferences) { |value| fake_json(value) }                          # fake values, keep keys
+scrub(:metadata) { |value| fake_json(value, preserve_keys: false) }       # fake keys AND values
+scrub(:config) { |value| fake_json(value, keep: ['api_version']) }         # preserve specific key/value pairs
 scrub(:data) { |value| fake_json(value, keep: ['user.profile.email']) }    # dot notation for nesting
 ```
+
+| Option | Keys | Values |
+|---|---|---|
+| `fake_json(value)` | Original | Faked |
+| `fake_json(value, preserve_keys: false)` | Faked | Faked |
+| `fake_json(value, keep: ['path'])` | Original (kept paths preserved) | Faked (kept paths preserved) |
+| `fake_json(value, preserve_keys: false, keep: ['path'])` | Faked (kept paths preserved) | Faked (kept paths preserved) |
 
 ### Custom helpers
 
@@ -510,6 +517,13 @@ Pumice::SafeScrubber.new(
 
 Removes old records before sanitization to reduce dataset size. Useful for log tables, audit trails, and event streams.
 
+Pumice supports pruning at two levels:
+
+- **Per-sanitizer `prune`** — defined inside a sanitizer with a custom scope. Runs as part of that sanitizer's `scrub_all!`, right before record-by-record scrubbing. See [`prune` in the Sanitizer DSL](#prune-pre-step-not-terminal).
+- **Global pruning** — configured once in the initializer. Applies a single age-based rule across many tables at once, before any sanitizers run. Useful when you want a blanket retention policy (e.g., "delete everything older than 90 days") without adding `prune` to every sanitizer.
+
+Use per-sanitizer `prune` when different tables need different scopes (age-based, status-based, etc.). Use global pruning when a uniform retention policy covers most tables.
+
 ### Analyze first
 
 ```bash
@@ -525,7 +539,7 @@ The analyzer categorizes tables by confidence:
 - **Medium**: Log tables OR >70% old, no dependencies
 - **Low**: Everything else — review before pruning
 
-### Configure
+### Global pruning configuration
 
 ```ruby
 Pumice.configure do |config|
@@ -546,7 +560,13 @@ end
 
 ### Execution order
 
-Global pruning runs first (before any sanitizers). Per-sanitizer `prune` runs within each sanitizer's `scrub_all!`. If a table appears in both, the `on_conflict` option controls behavior.
+```
+1. Global pruning     → deletes across all eligible tables (config.pruning)
+2. Per-sanitizer prune → deletes within one table (DSL prune block)
+3. Record-by-record scrub → scrubs surviving records
+```
+
+Global pruning runs once before any sanitizers execute. Per-sanitizer `prune` runs inside each sanitizer's `scrub_all!`, just before scrubbing begins. If the same table is pruned at both levels, the `on_conflict` option controls behavior (`:warn`, `:raise`, or `:rollback`).
 
 ### Disable at runtime
 
@@ -597,14 +617,27 @@ end
 
 The `context:` config option resolves a Symbol through: `record.method` → `Pumice.method` → `Current.method` → `Thread.current[:key]`.
 
-### `raw(:name)`
+### Accessing original values
 
-When soft scrubbing is enabled, `raw(:name)` on any model reads the original database value, bypassing the attribute interceptor. Essential for policy checks that would otherwise trigger infinite recursion.
+When soft scrubbing is enabled, attribute reads return scrubbed values. To access the original database value:
+
+**Inside sanitizer definitions** — `raw(:*)` and `raw_attr` are available via the sanitizer DSL (see [Referencing other attributes](#referencing-other-attributes-in-scrub-blocks)).
+
+**Inside ActiveRecord models** — use `read_attribute(:attr)` or define a helper:
 
 ```ruby
 class User < ApplicationRecord
   def admin?
-    ADMIN_EMAILS.include?(raw(:email))
+    ADMIN_EMAILS.include?(read_attribute(:email))
+  end
+
+  # Or define a convenience method:
+  def raw(attr_name)
+    if Pumice.soft_scrubbing?
+      read_attribute(attr_name)
+    else
+      @attributes.fetch_value(attr_name.to_s)
+    end
   end
 end
 ```
@@ -613,32 +646,52 @@ end
 
 ## Verification
 
-Post-operation checks to confirm sanitization succeeded. All verification raises `Pumice::VerificationError` on failure and is skipped during dry runs.
+Post-operation checks declared inside a sanitizer definition. All verification raises `Pumice::VerificationError` on failure and is skipped during dry runs.
 
 ### Table-level
 
 ```ruby
-verify "No real emails should remain" do
-  where("email LIKE '%@gmail.com'").none?
+class UserSanitizer < Pumice::Sanitizer
+  sanitizes :users
+  scrub(:email) { Faker::Internet.email }
+  keep :id, :created_at, :updated_at
+
+  verify "No real emails should remain" do
+    where("email LIKE '%@gmail.com'").none?
+  end
 end
 ```
 
-The block runs in model scope. Return truthy for success.
+The `verify` block runs in model scope (`User.instance_exec`). Return truthy for success.
 
 ### Per-record
 
 ```ruby
-verify_each "Email should be scrubbed" do |record|
-  !record.email.match?(/gmail|yahoo|hotmail/)
+class UserSanitizer < Pumice::Sanitizer
+  sanitizes :users
+  scrub(:email) { Faker::Internet.email }
+  keep :id, :created_at, :updated_at
+
+  verify_each "Email should be scrubbed" do |record|
+    !record.email.match?(/gmail|yahoo|hotmail/)
+  end
 end
 ```
 
 ### Inline (bulk operations)
 
+Bulk operations accept a `verify: true` option that uses a default check after execution:
+
 ```ruby
-truncate!(verify: true)                              # verifies count.zero?
-delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
-destroy_all(verify: true) { where(attachable_id: nil) }
+class AuditLogSanitizer < Pumice::Sanitizer
+  sanitizes :audit_logs
+  truncate!(verify: true)                              # verifies count.zero?
+end
+
+class VersionSanitizer < Pumice::Sanitizer
+  sanitizes :versions
+  delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
+end
 ```
 
 ### Default verification for bulk operations
@@ -802,7 +855,7 @@ Pumice seeds Faker with `record.id` before each record. This makes scrubbing **d
 
 ### Soft scrubbing circular dependency
 
-If your policy check reads a scrubbed attribute (e.g., `viewer.admin?` checks `viewer.email`), use `raw(:email)` instead. Without this, the policy triggers scrubbing, which triggers the policy — infinite loop. Pumice includes a recursion guard as a safety net, but `raw(:name)` is the correct fix.
+If your policy check reads a scrubbed attribute (e.g., `viewer.admin?` checks `viewer.email`), use `read_attribute(:email)` instead. Without this, the policy triggers scrubbing, which triggers the policy — infinite loop. Pumice includes a recursion guard that falls through to `super` (the real value) on re-entry, so the app won't crash, but `read_attribute()` makes the intent explicit.
 
 ### `source_database_url = :auto`
 

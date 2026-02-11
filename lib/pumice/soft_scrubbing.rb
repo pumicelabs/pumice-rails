@@ -36,15 +36,6 @@ module Pumice
         end
       end
 
-      # Read an attribute's raw value, bypassing soft scrubbing.
-      #
-      #   def admin?
-      #     ADMIN_EMAILS.include?(raw(:email))
-      #   end
-      def raw(attr_name)
-        @attributes.fetch_value(attr_name.to_s)
-      end
-
       private
 
       def soft_scrubbed_value(attr_name, sanitizer)
