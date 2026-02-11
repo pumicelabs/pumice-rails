@@ -67,9 +67,9 @@ Without `--defaults`, scrub blocks require you to define the logic:
 # app/sanitizers/user_sanitizer.rb
 class UserSanitizer < Pumice::Sanitizer
   # PII - scrub with fake data
-  scrub(:email) { raise NotImplementedError }
+  scrub(:email)      { raise NotImplementedError }
   scrub(:first_name) { raise NotImplementedError }
-  scrub(:last_name) { raise NotImplementedError }
+  scrub(:last_name)  { raise NotImplementedError }
 
   # Credentials - clear sensitive data
   scrub(:encrypted_password) { raise NotImplementedError }
@@ -84,9 +84,9 @@ With `--defaults`, blocks are pre-filled with smart Faker logic:
 ```ruby
 # app/sanitizers/user_sanitizer.rb (--defaults)
 class UserSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email(record) }
+  scrub(:email)      { fake_email(record) }
   scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
+  scrub(:last_name)  { Faker::Name.last_name }
   scrub(:encrypted_password) { nil }
 
   keep :roles, :active
@@ -139,9 +139,9 @@ Define how to replace a PII column. The block receives the original value and ha
 
 ```ruby
 scrub(:first_name) { Faker::Name.first_name }
-scrub(:bio) { |value| match_length(value, use: :paragraph) }
-scrub(:notes) { |value| value.present? ? Faker::Lorem.sentence : nil }
-scrub(:email) { fake_email(record, domain: 'test.example') }
+scrub(:bio)        { |value| match_length(value, use: :paragraph) }
+scrub(:notes)      { |value| value.present? ? Faker::Lorem.sentence : nil }
+scrub(:email)      { fake_email(record, domain: 'test.example') }
 ```
 
 ### `keep(*columns)`
@@ -166,11 +166,12 @@ Pumice.configure { |c| c.allow_keep_undefined_columns = false }
 
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
-  scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
-  scrub(:display_name) { "#{first_name} #{last_name}" }                        # scrubbed values
-  scrub(:email) { "#{raw(:first_name)}.#{raw(:last_name)}@example.test".downcase }  # original values
-  keep :id, :created_at, :updated_at
+  scrub(:first_name)   { Faker::Name.first_name }
+  scrub(:last_name)    { Faker::Name.last_name }
+  scrub(:display_name) { "#{first_name} #{last_name}" }                                    # scrubbed values
+  scrub(:email)        { "#{raw(:first_name)}.#{raw(:last_name)}@example.test".downcase }  # original values
+
+  # ...
 end
 ```
 
@@ -211,9 +212,10 @@ Removes matching records **before** record-by-record scrubbing. Survivors get sc
 class EmailLogSanitizer < Pumice::Sanitizer
   prune { where(created_at: ..1.year.ago) }  # delete old logs
 
-  scrub(:email) { fake_email(record) }        # scrub the rest
-  scrub(:body) { |value| match_length(value, use: :paragraph) }
-  keep :user_id, :status
+  scrub(:email) { fake_email(record) }       # scrub the rest
+  scrub(:body)  { |value| match_length(value, use: :paragraph) }
+
+  # ...
 end
 ```
 
@@ -239,6 +241,7 @@ end
 # SQL DELETE with optional scope (no callbacks)
 class VersionSanitizer < Pumice::Sanitizer
   sanitizes :versions, class_name: 'PaperTrail::Version'
+
   delete_all { where(item_type: %w[User Message]) }
 end
 
@@ -280,6 +283,7 @@ Post-operation checks declared inside a sanitizer definition. All verification r
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
   sanitizes :users
+
   scrub(:email) { Faker::Internet.email }
   keep :id, :created_at, :updated_at
 
@@ -296,6 +300,7 @@ The `verify_all` block runs in model scope (`User.instance_exec`). Return truthy
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
   sanitizes :users
+
   scrub(:email) { Faker::Internet.email }
   keep :id, :created_at, :updated_at
 
@@ -311,12 +316,10 @@ Bulk operations accept a `verify: true` option that uses a default check after e
 
 ```ruby
 class AuditLogSanitizer < Pumice::Sanitizer
-  sanitizes :audit_logs
   truncate!(verify: true)                              # verifies count.zero?
 end
 
 class VersionSanitizer < Pumice::Sanitizer
-  sanitizes :versions
   delete_all(verify: true) { where(item_type: 'User') } # verifies scope.none?
 end
 ```
@@ -370,9 +373,15 @@ All helpers are available inside `scrub` blocks via `Pumice::Helpers`.
 Deterministic — same record always produces the same email across runs. Important for data consistency.
 
 ```ruby
-scrub(:email) { fake_email(record) }                               # user_123@example.test
-scrub(:email) { fake_email(record, domain: 'test.example.com') }   # user_123@test.example.com
-scrub(:contact_email) { fake_email(prefix: 'contact', unique_id: record.id) }
+class UserSanitizer < Pumice::Sanitizer
+  sanitizes :users
+
+  scrub(:email)         { fake_email(record) }                             # user_123@example.test
+  scrub(:email)         { fake_email(record, domain: 'test.example.com') } # user_123@test.example.com
+  scrub(:contact_email) {              
+    fake_email(prefix: 'contact', unique_id: record.unique_id)             # contact_789@example.test
+  } 
+end
 ```
 
 ### `fake_password`
@@ -380,7 +389,7 @@ scrub(:contact_email) { fake_email(prefix: 'contact', unique_id: record.id) }
 Uses low BCrypt cost (4) for speed. All scrubbed users get the same password so devs can log in.
 
 ```ruby
-scrub(:encrypted_password) { fake_password }                # hash of 'password123'
+scrub(:encrypted_password) { fake_password }                # hash of default 'password123'
 scrub(:encrypted_password) { fake_password('testpass') }    # custom password
 ```
 
@@ -389,8 +398,8 @@ scrub(:encrypted_password) { fake_password('testpass') }    # custom password
 Generates text approximating the original value's length. Respects column constraints.
 
 ```ruby
-scrub(:bio) { |value| match_length(value, use: :paragraph) }
-scrub(:code) { |value| match_length(value, use: :characters) }  # random alphanumeric
+scrub(:bio)   { |value| match_length(value, use: :paragraph) }
+scrub(:code)  { |value| match_length(value, use: :characters) }               # random alphanumeric
 scrub(:title) { |value| match_length(value, use: -> { Faker::Book.title }) }  # custom generator
 ```
 
@@ -407,10 +416,10 @@ scrub(:title) { |value| match_length(value, use: -> { Faker::Book.title }) }  # 
 Sanitizes JSON structures. Strings become random words, numbers become `0`, booleans and `nil` are preserved. Structure (nesting depth, array lengths) is always retained.
 
 ```ruby
-scrub(:preferences) { |value| fake_json(value) }                          # fake values, keep keys
-scrub(:metadata) { |value| fake_json(value, preserve_keys: false) }       # fake keys AND values
-scrub(:config) { |value| fake_json(value, keep: ['api_version']) }         # preserve specific key/value pairs
-scrub(:data) { |value| fake_json(value, keep: ['user.profile.email']) }    # dot notation for nesting
+scrub(:preferences) { |value| fake_json(value) }                               # fake values, keep keys
+scrub(:metadata)    { |value| fake_json(value, preserve_keys: false) }         # fake keys AND values
+scrub(:config)      { |value| fake_json(value, keep: ['api_version']) }        # preserve specific key/value pairs
+scrub(:data)        { |value| fake_json(value, keep: ['user.profile.email']) } # dot notation for nesting
 ```
 
 | Option | Keys | Values |
@@ -429,12 +438,12 @@ Extend `Pumice::Helpers` for project-specific needs:
 module Pumice
   module Helpers
     def fake_student_id(record)
-      "STU-#{record.school_id}-#{sprintf('%04d', record.id)}"
+      "STU-#{record.student_id}"
     end
 
     def redact(value, show_last: 4)
       return nil if value.blank?
-      "#{'*' * (value.length - show_last)}#{value.last(show_last)}"
+      "******"
     end
   end
 end
