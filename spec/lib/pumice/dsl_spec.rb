@@ -499,6 +499,21 @@ RSpec.describe Pumice::DSL do
       end
     end
 
+    describe 'raw(:name) explicit accessor' do
+      let(:raw_sanitizer_class) do
+        create_sanitizer do
+          sanitizes :user
+          scrub(:first_name) { 'Fake' }
+          scrub(:email) { "#{raw(:first_name)}@example.com" }
+        end
+      end
+
+      it 'reads original database values' do
+        result = raw_sanitizer_class.sanitize(user)
+        expect(result[:email]).to eq('John@example.com')
+      end
+    end
+
     describe 'record delegation' do
       it 'delegates other method calls to the record' do
         sanitizer_class_with_id = create_sanitizer do

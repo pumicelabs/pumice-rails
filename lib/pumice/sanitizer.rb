@@ -265,12 +265,19 @@ module Pumice
       end
     end
 
+    # Read an original database value, bypassing scrubbing.
+    #
+    #   scrub(:email) { "#{raw(:first_name)}.#{raw(:last_name)}@example.test" }
+    def raw(attr_name)
+      record.public_send(attr_name)
+    end
+
     # Provides a clean DSL for referencing attributes within scrub blocks:
     # - Bare attribute names return scrubbed values: `name` → scrub(:name)
-    # - raw_* methods return original database values: `raw_name` → record.name
+    # - raw_* methods return original database values: `raw_name` → raw(:name)
     def method_missing(method_name, *args, &block)
       if raw_attribute_method?(method_name)
-        return record.public_send(extract_raw_attribute_name(method_name))
+        return raw(extract_raw_attribute_name(method_name))
       end
 
       if self.class.scrubbed_column?(method_name)

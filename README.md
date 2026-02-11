@@ -2,67 +2,6 @@
 
 Database PII sanitization for Rails. Declarative scrubbing, pruning, and safe export of PII-free database copies. All operations are **non-destructive** to the source database unless you explicitly opt into destructive mode.
 
-## Install
-
-```ruby
-# Gemfile
-gem 'pumice'
-```
-
-```bash
-bundle install
-```
-
-## Quick Start
-
-### 1. Create the initializer
-
-```bash
-rails generate pumice:install
-```
-
-This creates [config/initializers/pumice.rb](config/initializers/pumice.rb) with commented defaults. The defaults work out of the box — customize later as needed.
-
-### 2. Generate a sanitizer
-
-```bash
-rails generate pumice:sanitizer User
-```
-
-This inspects your model's columns and generates [app/sanitizers/user_sanitizer.rb](app/sanitizers/user_sanitizer.rb) with smart defaults — PII columns get `scrub` blocks, credentials get cleared, and safe columns get `keep` declarations.
-
-### 3. Review and adjust the generated sanitizer
-
-```ruby
-# app/sanitizers/user_sanitizer.rb
-class UserSanitizer < Pumice::Sanitizer
-  scrub(:email) { fake_email(record) }
-  scrub(:first_name) { Faker::Name.first_name }
-  scrub(:last_name) { Faker::Name.last_name }
-  scrub(:phone) { fake_phone }
-  scrub(:encrypted_password) { fake_password }
-
-  keep :id, :created_at, :updated_at, :roles, :active
-end
-```
-
-### 4. Run it
-
-```bash
-# Preview what would change (no writes)
-rake db:scrub:test
-
-# Generate a scrubbed database dump (source untouched)
-rake db:scrub:generate
-
-# Or copy-and-scrub to a separate database
-SOURCE_DATABASE_URL=postgres://prod/myapp \
-TARGET_DATABASE_URL=postgres://local/myapp_dev \
-rake db:scrub:safe
-```
-
-That's it. Pumice auto-discovers sanitizers in `app/sanitizers/` and auto-registers them by class name (`UserSanitizer` → `users`).
-
 ---
 
 ## Table of Contents
@@ -79,6 +18,69 @@ That's it. Pumice auto-discovers sanitizers in `app/sanitizers/` and auto-regist
 - [Testing](#testing)
 - [Materialized Views](#materialized-views)
 - [Gotchas](#gotchas)
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```ruby
+# Gemfile
+gem 'pumice'
+```
+
+```bash
+bundle install
+```
+
+### 2. Create the initializer
+
+```bash
+rails generate pumice:install
+```
+
+This creates [config/initializers/pumice.rb](config/initializers/pumice.rb) with commented defaults. The defaults work out of the box — customize later as needed.
+
+### 3. Generate a sanitizer
+
+```bash
+rails generate pumice:sanitizer User
+```
+
+This inspects your model's columns and generates [app/sanitizers/user_sanitizer.rb](app/sanitizers/user_sanitizer.rb) with smart defaults — PII columns get `scrub` blocks, credentials get cleared, and safe columns get `keep` declarations.
+
+### 4. Review and adjust the generated sanitizer
+
+```ruby
+# app/sanitizers/user_sanitizer.rb
+class UserSanitizer < Pumice::Sanitizer
+  scrub(:email) { fake_email(record) }
+  scrub(:first_name) { Faker::Name.first_name }
+  scrub(:last_name) { Faker::Name.last_name }
+  scrub(:phone) { fake_phone }
+  scrub(:encrypted_password) { fake_password }
+
+  keep :id, :created_at, :updated_at, :roles, :active
+end
+```
+
+### 5. Run it
+
+```bash
+# Preview what would change (no writes)
+rake db:scrub:test
+
+# Generate a scrubbed database dump (source untouched)
+rake db:scrub:generate
+
+# Or copy-and-scrub to a separate database
+SOURCE_DATABASE_URL=postgres://prod/myapp \
+TARGET_DATABASE_URL=postgres://local/myapp_dev \
+rake db:scrub:safe
+```
+
+That's it. Pumice auto-discovers sanitizers in `app/sanitizers/` and auto-registers them by class name (`UserSanitizer` → `users`).
 
 ---
 
@@ -115,14 +117,14 @@ Pumice.configure { |c| c.allow_keep_undefined_columns = false }
 
 ### Referencing other attributes in scrub blocks
 
-**Bare names** return scrubbed values. **`raw_*` prefix** returns original database values.
+**Bare names** return scrubbed values. **`raw(:name)`** returns original database values.
 
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
   scrub(:first_name) { Faker::Name.first_name }
   scrub(:last_name) { Faker::Name.last_name }
-  scrub(:display_name) { "#{first_name} #{last_name}" }             # scrubbed values
-  scrub(:email) { "#{raw_first_name}.#{raw_last_name}@example.test".downcase }  # original values
+  scrub(:display_name) { "#{first_name} #{last_name}" }                        # scrubbed values
+  scrub(:email) { "#{raw(:first_name)}.#{raw(:last_name)}@example.test".downcase }  # original values
   keep :id, :created_at, :updated_at
 end
 ```
@@ -382,7 +384,6 @@ end
 | `sensitive_email_column` | `'email'` | Column for email lookup |
 | `sensitive_token_columns` | `%w[reset_password_token confirmation_token]` | Token columns to verify are cleared |
 | `sensitive_external_id_columns` | `[]` | External ID columns to verify are cleared |
-| `on_raw_method_conflict` | `:skip` | Handle `raw_*` method conflicts: `:skip`, `:warn`, `:raise` |
 | `source_database_url` | `nil` | Source DB for safe scrub (`:auto` to derive from Rails config) |
 | `target_database_url` | `nil` | Target DB for safe scrub |
 | `export_path` | `nil` | Path to export scrubbed dump |
@@ -592,30 +593,17 @@ end
 
 The `context:` config option resolves a Symbol through: `record.method` → `Pumice.method` → `Current.method` → `Thread.current[:key]`.
 
-### `raw_*` methods
+### `raw(:name)`
 
-When a sanitizer declares `scrub(:email)`, Pumice auto-generates `raw_email` on the model. This bypasses soft scrubbing — essential for policy checks that read scrubbed attributes.
+When soft scrubbing is enabled, `raw(:name)` on any model reads the original database value, bypassing the attribute interceptor. Essential for policy checks that would otherwise trigger infinite recursion.
 
 ```ruby
 class User < ApplicationRecord
   def admin?
-    # raw_email bypasses soft scrubbing, preventing infinite recursion
-    ADMIN_EMAILS.include?(raw_email)
+    ADMIN_EMAILS.include?(raw(:email))
   end
 end
 ```
-
-A generic `raw_attribute(:name)` method is also available.
-
-### `on_raw_method_conflict`
-
-Controls behavior when `raw_*` conflicts with an existing method:
-
-| Value | Behavior |
-|---|---|
-| `:skip` | Silently skip (existing method wins) — **default** |
-| `:warn` | Log warning, continue |
-| `:raise` | Raise `Pumice::MethodConflictError` |
 
 ---
 
@@ -810,7 +798,7 @@ Pumice seeds Faker with `record.id` before each record. This makes scrubbing **d
 
 ### Soft scrubbing circular dependency
 
-If your policy check reads a scrubbed attribute (e.g., `viewer.admin?` checks `viewer.email`), use the auto-generated `raw_email` method instead. Without this, the policy triggers scrubbing, which triggers the policy — infinite loop. Pumice includes a recursion guard as a safety net, but `raw_*` methods are the correct fix.
+If your policy check reads a scrubbed attribute (e.g., `viewer.admin?` checks `viewer.email`), use `raw(:email)` instead. Without this, the policy triggers scrubbing, which triggers the policy — infinite loop. Pumice includes a recursion guard as a safety net, but `raw(:name)` is the correct fix.
 
 ### `source_database_url = :auto`
 

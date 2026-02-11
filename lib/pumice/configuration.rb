@@ -17,9 +17,7 @@ module Pumice
                   :export_format,         # Export format: :custom (pg_dump -Fc) or :plain (SQL)
                   :require_readonly_source, # Enforce read-only source credentials (default: false, warns only)
                   # Pruning configuration
-                  :pruning,               # Delete old records before sanitization (see pruning_config)
-                  # Soft scrub configuration
-                  :on_raw_method_conflict # How to handle raw_* method conflicts: :skip, :warn, :raise (default: :skip)
+                  :pruning                # Delete old records before sanitization (see pruning_config)
 
     attr_writer :soft_scrubbing
 
@@ -63,8 +61,6 @@ module Pumice
       @require_readonly_source = false  # Warn by default, set true to enforce
       # Pruning defaults
       @pruning = false  # Disabled by default; set to hash to enable
-      # Soft scrub defaults
-      @on_raw_method_conflict = :skip  # :skip (silent), :warn, or :raise
     end
 
     # Returns true if soft_scrubbing config is set
