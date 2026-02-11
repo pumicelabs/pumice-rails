@@ -91,7 +91,7 @@ module Pumice
         # Generate appropriate scrubbing logic based on column characteristics
         case
         when name.include?('email')
-          nullable ? email_scrub_logic(nullable) : email_scrub_logic(nullable)
+          email_scrub_logic(nullable)
         when name.include?('phone') || name.include?('call_number')
           phone_scrub_logic(nullable)
         when name.include?('first_name')
