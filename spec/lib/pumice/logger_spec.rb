@@ -115,6 +115,24 @@ RSpec.describe Pumice::Logger do
       end
     end
 
+    describe ':would_sanitize action' do
+      it 'increments would_sanitize count' do
+        allow(Pumice).to receive(:dry_run?).and_return(true)
+
+        described_class.log_record(:would_sanitize, 'ID 1 — email, name')
+
+        described_class.summary
+
+        expect(written).to include('Would sanitize: 1 records')
+      end
+
+      it 'outputs details in verbose mode' do
+        described_class.log_record(:would_sanitize, 'ID 1 — email, name')
+
+        expect(written).to include('~ ID 1 — email, name')
+      end
+    end
+
     describe ':skipped action' do
       it 'increments skipped count' do
         described_class.log_record(:skipped, 'ID 1')
@@ -160,6 +178,17 @@ RSpec.describe Pumice::Logger do
 
       expect(written).to include('Complete')
       expect(written).to include('42')
+    end
+
+    context 'when dry run' do
+      before { allow(Pumice).to receive(:dry_run?).and_return(true) }
+
+      it 'outputs would-affect message' do
+        described_class.log_complete('UserSanitizer', 42)
+
+        expect(written).to include('Would affect: 42 records')
+        expect(written).not_to include('Complete')
+      end
     end
   end
 
@@ -213,7 +242,18 @@ RSpec.describe Pumice::Logger do
       it 'indicates dry run mode' do
         described_class.summary
 
-        expect(written).to include('DRY RUN')
+        expect(written).to include('DRY RUN (no changes were made)')
+      end
+
+      it 'shows would-sanitize count instead of sanitized/skipped' do
+        described_class.log_record(:would_sanitize, 'ID 1')
+        described_class.log_record(:would_sanitize, 'ID 2')
+
+        described_class.summary
+
+        expect(written).to include('Would sanitize: 2 records')
+        expect(written).not_to include('Sanitized:')
+        expect(written).not_to include('Skipped:')
       end
     end
 

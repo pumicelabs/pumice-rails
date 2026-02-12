@@ -44,6 +44,10 @@ module Pumice
         logger.initialize_stats
         logger.log_start(name)
 
+        if Pumice.dry_run? && !bulk_operation && scrubbed.any?
+          logger.log_progress("Columns: #{scrubbed_columns.join(', ')}")
+        end
+
         count = if bulk_operation
                   run_bulk_operation
                 else
@@ -65,8 +69,13 @@ module Pumice
         op = bulk_operation
 
         if Pumice.dry_run?
-          logger.log_progress("[DRY RUN] Would execute #{op[:type]} operation")
-          return 0
+          count = if op[:scope]
+                    model_class.instance_exec(&op[:scope]).count
+                  else
+                    model_class.count
+                  end
+          logger.log_progress("[DRY RUN] Would #{op[:type]} #{count} records")
+          return count
         end
 
         case op[:type]
@@ -108,7 +117,7 @@ module Pumice
         if Pumice.dry_run?
           count = scope.count
           logger.log_progress("[DRY RUN] Would prune #{count} records")
-          return 0
+          return count
         end
 
         count = scope.delete_all
@@ -117,15 +126,19 @@ module Pumice
       end
 
       def run_record_sanitization
+        total = model_class.count
+        progress = Pumice::Progress.new(title: model_class.name, total: total)
         count = 0
         model_class.find_each do |record|
           scrub!(record)
           run_record_verification(record) unless Pumice.dry_run?
           count += 1
+          progress.increment
         rescue => e
           logger.log_error(name, e)
           raise unless Pumice.config.continue_on_error
         end
+        progress.finish
         count
       end
 
@@ -208,7 +221,15 @@ module Pumice
 
       def persist_record(record, data)
         if Pumice.dry_run?
-          logger.log_record(:skipped, "ID #{record.id} (dry run)")
+          details = if Pumice.verbose?
+                      changes = data.map { |attr, new_val|
+                        "#{attr} (#{record.read_attribute(attr).inspect} → #{new_val.inspect})"
+                      }.join(', ')
+                      "ID #{record.id}: #{changes}"
+                    else
+                      "ID #{record.id} — #{data.keys.join(', ')}"
+                    end
+          logger.log_record(:would_sanitize, details)
         else
           record.update_columns(data)
           logger.log_record(:sanitized, "ID #{record.id}")
@@ -217,7 +238,8 @@ module Pumice
 
       def persist_attribute(record, attr_name, value)
         if Pumice.dry_run?
-          logger.log_record(:skipped, "ID #{record.id}.#{attr_name} (dry run)")
+          original = record.read_attribute(attr_name)
+          logger.log_record(:would_sanitize, "ID #{record.id}.#{attr_name} (#{original.inspect} → #{value.inspect})")
         else
           record.update_column(attr_name, value)
           logger.log_record(:sanitized, "ID #{record.id}.#{attr_name}")

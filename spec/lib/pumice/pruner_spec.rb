@@ -224,12 +224,12 @@ RSpec.describe Pumice::Pruner do
         expect(scope_double).not_to respond_to(:delete_all)
       end
 
-      it 'returns zero total in dry run' do
+      it 'returns count of records that would be pruned' do
         allow(User).to receive(:where).and_return(double(count: 500))
 
         result = described_class.new.run
 
-        expect(result[:total]).to eq(0)
+        expect(result[:total]).to eq(500)
       end
 
       it 'logs what would be pruned' do

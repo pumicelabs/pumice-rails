@@ -6,6 +6,7 @@ module Pumice; end
 
 require_relative 'pumice/configuration'
 require_relative 'pumice/output'
+require_relative 'pumice/progress'
 require_relative 'pumice/helpers'
 require_relative 'pumice/logger'
 require_relative 'pumice/dsl'

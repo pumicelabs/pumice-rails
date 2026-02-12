@@ -123,6 +123,9 @@ rake db:scrub:generate
 SOURCE_DATABASE_URL=postgres://prod/myapp \
 TARGET_DATABASE_URL=postgres://local/myapp_dev \
 rake db:scrub:safe
+
+# Or destructively scrub the attached database (WARNING!)
+rake db:scrub:all
 ```
 
 That's it. Pumice auto-discovers sanitizers in `app/sanitizers/` and auto-registers them by class name (`UserSanitizer` → `users`).
@@ -472,11 +475,34 @@ rake db:scrub:safe                    # copy to target DB, scrub target (interac
 rake 'db:scrub:safe_confirmed[mydb]'  # same, but auto-confirmed for CI
 ```
 
-### Destructive operations (modifies current DATABASE_URL)
+### ⚠️ Destructive operations (modifies current database) ⚠️
+
+The following will modify the currently attached database. You will be prompt to confirm, but user be warned:
 
 ```bash
 rake db:scrub:all                     # scrub current DB in-place (interactive confirmation)
 rake 'db:scrub:only[users,messages]'  # scrub specific tables in-place
+```
+
+### Progress indicators
+
+Long-running operations display progress bars when output is a TTY:
+
+```
+  Sanitizers: |============================        | 5/7 ETA: 00:12
+  Users:      |==================================  | 980/1024 ETA: 00:02
+```
+
+Progress bars are automatically hidden when:
+- `VERBOSE=true` (verbose mode shows per-record detail instead)
+- Output is piped or redirected (non-TTY)
+- The collection is empty
+
+Safe Scrub operations show a numbered step counter:
+
+```
+[1/5] Creating fresh target database...
+[2/5] Copying data from source to target...
 ```
 
 ### Environment variables
@@ -484,7 +510,7 @@ rake 'db:scrub:only[users,messages]'  # scrub specific tables in-place
 | Variable | Effect |
 |---|---|
 | `DRY_RUN=true` | Log changes without persisting |
-| `VERBOSE=true` | Detailed progress output |
+| `VERBOSE=true` | Detailed per-record output (disables progress bars) |
 | `PRUNE=false` | Disable pruning without changing config |
 | `SOURCE_DATABASE_URL` | Source DB for safe scrub |
 | `TARGET_DATABASE_URL` | Target DB for safe scrub |

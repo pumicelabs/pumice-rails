@@ -17,6 +17,7 @@ module Pumice
         started_at: Time.current,
         total_records: 0,
         sanitized_records: 0,
+        would_sanitize_records: 0,
         skipped_records: 0,
         errors: []
       }
@@ -39,6 +40,9 @@ module Pumice
       when :sanitized
         @stats[:sanitized_records] += 1
         output.line("    ✓ #{details}") if details && Pumice.verbose?
+      when :would_sanitize
+        @stats[:would_sanitize_records] += 1
+        output.line("    ~ #{details}") if details && Pumice.verbose?
       when :skipped
         @stats[:skipped_records] += 1
         output.line("    ⊘ #{details}") if details && Pumice.verbose?
@@ -52,7 +56,12 @@ module Pumice
 
     def log_complete(sanitizer_name, count)
       duration = Time.current - @stats[:started_at]
-      output.success("Complete: #{count} records in #{duration.round(2)}s")
+
+      if Pumice.dry_run?
+        output.line("Would affect: #{count} records in #{duration.round(2)}s", emoji: '🔍')
+      else
+        output.success("Complete: #{count} records in #{duration.round(2)}s")
+      end
     end
 
     def log_error(sanitizer_name, error)
@@ -70,12 +79,18 @@ module Pumice
       output.divider
       output.line('Sanitization Summary', emoji: '📊')
       output.divider
-      output.line("Total records processed: #{@stats[:total_records]}")
-      output.line("Sanitized: #{@stats[:sanitized_records]}")
-      output.line("Skipped: #{@stats[:skipped_records]}")
+
+      if Pumice.dry_run?
+        output.line("Would sanitize: #{@stats[:would_sanitize_records]} records")
+      else
+        output.line("Total records processed: #{@stats[:total_records]}")
+        output.line("Sanitized: #{@stats[:sanitized_records]}")
+        output.line("Skipped: #{@stats[:skipped_records]}")
+      end
+
       output.line("Errors: #{@stats[:errors].size}")
       output.line("Duration: #{duration.round(2)}s")
-      output.line("Mode: #{Pumice.dry_run? ? 'DRY RUN (no changes made)' : 'LIVE'}")
+      output.line("Mode: #{Pumice.dry_run? ? 'DRY RUN (no changes were made)' : 'LIVE'}")
 
       if @stats[:errors].any?
         output.blank

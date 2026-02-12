@@ -20,4 +20,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "rails",  ">= 6.0"
   spec.add_dependency "faker",  ">= 3.0"
   spec.add_dependency "bcrypt", ">= 3.1"
+  spec.add_dependency "ruby-progressbar", ">= 1.11"
 end

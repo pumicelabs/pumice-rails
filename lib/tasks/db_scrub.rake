@@ -332,14 +332,13 @@ namespace :db do
       failed = []
       succeeded = []
 
-      matviews_to_refresh.each_with_index do |matview, idx|
+      Pumice::Progress.each(matviews_to_refresh, "Views") do |matview|
         begin
-          out.line("  [#{idx + 1}/#{matviews_to_refresh.size}] #{matview}...")
           quoted_view = ActiveRecord::Base.connection.quote_table_name(matview)
           ActiveRecord::Base.connection.execute("REFRESH MATERIALIZED VIEW #{quoted_view}")
           succeeded << matview
         rescue StandardError => e
-          out.warning("    ⚠️  Failed: #{e.message}")
+          out.warning("  #{matview}: Failed: #{e.message}")
           failed << { name: matview, error: e.message }
         end
       end

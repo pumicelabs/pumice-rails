@@ -25,6 +25,9 @@ module Pumice
       validate_source_readonly!
       confirm_target!
 
+      @total_steps = 4 + (Pumice.pruning_enabled? ? 1 : 0) + (@export_path ? 1 : 0)
+      @current_step = 0
+
       log_header
       step('Creating fresh target database') { create_target_database }
       step('Copying data from source to target') { copy_database }
@@ -171,7 +174,8 @@ module Pumice
     end
 
     def step(message)
-      output.line(">> #{message}...")
+      @current_step += 1
+      output.line("[#{@current_step}/#{@total_steps}] #{message}...")
       yield
       output.line("   Done")
     rescue => e

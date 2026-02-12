@@ -33,7 +33,7 @@ module Pumice
 
       log_header(direction, age)
 
-      tables_to_prune.each do |table_name|
+      Pumice::Progress.each(tables_to_prune, "Pruning") do |table_name|
         count = ActiveRecord::Base.transaction(requires_new: true) do
           prune_table(table_name, column, cutoff, direction)
         end
@@ -109,7 +109,7 @@ module Pumice
       if Pumice.dry_run?
         count = scope.count
         Pumice::Logger.log_progress("  #{table_name}: would prune #{count} records") if count > 0
-        return 0
+        return count
       end
 
       count = scope.delete_all
