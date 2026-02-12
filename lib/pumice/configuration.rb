@@ -118,7 +118,6 @@ module Pumice
         column: @pruning.fetch(:column, :created_at).to_sym,
         only: @pruning.fetch(:only, []).map(&:to_s),
         except: @pruning.fetch(:except, []).map(&:to_s),
-        on_conflict: @pruning.fetch(:on_conflict, :warn).to_sym,
         analyzer: normalize_analyzer_config(@pruning.fetch(:analyzer, {}))
       }
     end
@@ -139,12 +138,6 @@ module Pumice
         raise ArgumentError,
           "Pruning config requires either older_than: or newer_than: to specify " \
           "which records to prune."
-      end
-
-      on_conflict = @pruning.fetch(:on_conflict, :warn).to_sym
-      unless %i[warn raise rollback].include?(on_conflict)
-        raise ArgumentError,
-          "Pruning on_conflict must be :warn, :raise, or :rollback, got #{on_conflict.inspect}"
       end
     end
 

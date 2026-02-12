@@ -650,12 +650,12 @@ Pumice::SafeScrubber.new(
 
 Removes old records before sanitization to reduce dataset size. Useful for log tables, audit trails, and event streams.
 
-Pumice supports pruning at two levels:
+Pumice supports pruning at two levels with a **cascading override** model:
 
-- **Per-sanitizer `prune`** — defined inside a sanitizer with a custom scope. Runs as part of that sanitizer's `scrub_all!`, right before record-by-record scrubbing. See [`prune` in the Sanitizer DSL](#prune-pre-step-not-terminal).
-- **Global pruning** — configured once in the initializer. Applies a single age-based rule across many tables at once, before any sanitizers run. Useful when you want a blanket retention policy (e.g., "delete everything older than 90 days") without adding `prune` to every sanitizer.
+- **Global pruning** — configured once in the initializer. Applies a single age-based rule across many tables at once, before any sanitizers run. This is the default policy.
+- **Per-sanitizer `prune`** — defined inside a sanitizer with a custom scope. **Overrides** global pruning for that table. See [`prune` in the Sanitizer DSL](#prune-pre-step-not-terminal).
 
-Use per-sanitizer `prune` when different tables need different scopes (age-based, status-based, etc.). Use global pruning when a uniform retention policy covers most tables.
+When a sanitizer defines its own `prune`, global pruning skips that table entirely — the sanitizer's prune takes over. Use global pruning for a blanket retention policy and per-sanitizer `prune` to override specific tables with custom scopes.
 
 ### Analyze first
 
@@ -680,7 +680,6 @@ Pumice.configure do |config|
     older_than: 90.days,          # required (mutually exclusive with newer_than)
     column: :created_at,          # default
     except: %w[users messages],   # never prune these (mutually exclusive with only)
-    on_conflict: :warn,           # when global + sanitizer prune overlap: :warn, :raise, :rollback
 
     analyzer: {
       table_patterns: %w[portal_session voice_log],  # domain-specific log patterns
@@ -694,12 +693,15 @@ end
 ### Execution order
 
 ```
-1. Global pruning     → deletes across all eligible tables (config.pruning)
-2. Per-sanitizer prune → deletes within one table (DSL prune block)
-3. Record-by-record scrub → scrubs surviving records
+1. Global prune  → delete old records from all eligible tables
+                    (tables with a sanitizer-level prune are skipped)
+
+2. Sanitizers    → for each sanitizer, in order:
+                    a. run sanitizer-level prune, if defined
+                    b. scrub surviving records
 ```
 
-Global pruning runs once before any sanitizers execute. Per-sanitizer `prune` runs inside each sanitizer's `scrub_all!`, just before scrubbing begins. If the same table is pruned at both levels, the `on_conflict` option controls behavior (`:warn`, `:raise`, or `:rollback`).
+The sanitizer-level `prune` replaces global pruning for that table — they never both run on the same table.
 
 ### Disable at runtime
 

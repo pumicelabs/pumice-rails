@@ -303,33 +303,12 @@ RSpec.describe Pumice do
           .to raise_error(ArgumentError, /requires either older_than: or newer_than:/)
       end
 
-      it 'raises for invalid on_conflict value' do
-        Pumice.config.pruning = { older_than: 90.days, on_conflict: :explode }
-
-        expect { Pumice.config.pruning }
-          .to raise_error(ArgumentError, /on_conflict must be/)
-      end
-
-      it 'accepts older_than with valid on_conflict' do
-        Pumice.config.pruning = { older_than: 1.year, on_conflict: :raise }
-
-        config = Pumice.config.pruning
-        expect(config[:older_than]).to eq(1.year)
-        expect(config[:on_conflict]).to eq(:raise)
-      end
-
       it 'accepts newer_than' do
         Pumice.config.pruning = { newer_than: 30.days }
 
         config = Pumice.config.pruning
         expect(config[:newer_than]).to eq(30.days)
         expect(config[:older_than]).to be_nil
-      end
-
-      it 'defaults on_conflict to :warn' do
-        Pumice.config.pruning = { older_than: 90.days }
-
-        expect(Pumice.config.pruning[:on_conflict]).to eq(:warn)
       end
 
       it 'defaults column to :created_at' do

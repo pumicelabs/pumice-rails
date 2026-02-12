@@ -289,87 +289,61 @@ RSpec.describe Pumice::Pruner do
     end
   end
 
-  describe 'conflict detection' do
-    let(:sanitizer_with_prune) do
-      Class.new(Pumice::Sanitizer) do
-        sanitizes :users
-        scrub(:email) { 'fake@example.com' }
-        prune { where(created_at: ..1.year.ago) }
-        keep_undefined_columns!
-
-        def self.name
-          'UserSanitizer'
-        end
-      end
-    end
-
+  describe 'cascading behavior' do
     before do
-      allow(ActiveRecord::Base.connection).to receive(:tables).and_return(%w[users])
+      allow(ActiveRecord::Base.connection).to receive(:tables).and_return(%w[users logs])
       allow(User).to receive(:column_names).and_return(%w[id created_at])
       allow(User).to receive(:arel_table).and_return(User.arel_table)
-      allow(User).to receive(:where).and_return(double(delete_all: 0))
+      allow(User).to receive(:where).and_return(double(delete_all: 10))
+      stub_const('Log', Class.new(ActiveRecord::Base))
+      allow(Log).to receive(:column_names).and_return(%w[id created_at])
+      allow(Log).to receive(:arel_table).and_return(Log.arel_table)
+      allow(Log).to receive(:where).and_return(double(delete_all: 50))
     end
 
-    context 'with on_conflict: :warn (default)' do
+    context 'when a sanitizer defines its own prune' do
       before do
-        sanitizer_with_prune
+        Class.new(Pumice::Sanitizer) do
+          sanitizes :users
+          scrub(:email) { 'fake@example.com' }
+          prune { where(created_at: ..1.year.ago) }
+          keep_undefined_columns!
+
+          def self.name
+            'UserSanitizer'
+          end
+        end
+
         Pumice.configure do |c|
           c.pruning = {
             older_than: 90.days,
-            column: :created_at,
-            only: %w[users],
-            on_conflict: :warn
+            column: :created_at
           }
         end
       end
 
-      it 'logs a warning but continues' do
+      it 'skips that table in global pruning' do
+        result = described_class.new.run
+
+        expect(result[:tables]).not_to have_key('users')
+      end
+
+      it 'still prunes tables without a sanitizer override' do
+        result = described_class.new.run
+
+        expect(result[:tables]).to eq({ 'logs' => 50 })
+      end
+
+      it 'logs which tables are skipped' do
         described_class.new.run
 
-        expect(output).to have_received(:warning).with(/CONFLICT.*UserSanitizer.*users/)
+        expect(Pumice::Logger).to have_received(:log_progress)
+          .with(/users: skipped \(sanitizer defines its own prune\)/)
       end
     end
 
-    context 'with on_conflict: :raise' do
+    context 'when no sanitizer defines prune' do
       before do
-        sanitizer_with_prune
-        Pumice.configure do |c|
-          c.pruning = {
-            older_than: 90.days,
-            column: :created_at,
-            only: %w[users],
-            on_conflict: :raise
-          }
-        end
-      end
-
-      it 'raises PruningConflictError' do
-        expect { described_class.new.run }
-          .to raise_error(Pumice::PruningConflictError, /UserSanitizer.*users/)
-      end
-    end
-
-    context 'with on_conflict: :rollback' do
-      before do
-        sanitizer_with_prune
-        Pumice.configure do |c|
-          c.pruning = {
-            older_than: 90.days,
-            column: :created_at,
-            only: %w[users],
-            on_conflict: :rollback
-          }
-        end
-      end
-
-      it 'raises ActiveRecord::Rollback' do
-        expect { described_class.new.run }
-          .to raise_error(ActiveRecord::Rollback, /UserSanitizer.*users/)
-      end
-    end
-
-    context 'when no conflict exists' do
-      let(:sanitizer_without_prune) do
         Class.new(Pumice::Sanitizer) do
           sanitizes :users
           scrub(:email) { 'fake@example.com' }
@@ -379,28 +353,19 @@ RSpec.describe Pumice::Pruner do
             'UserSanitizer'
           end
         end
-      end
 
-      before do
-        sanitizer_without_prune
         Pumice.configure do |c|
           c.pruning = {
             older_than: 90.days,
-            column: :created_at,
-            only: %w[users],
-            on_conflict: :raise
+            column: :created_at
           }
         end
       end
 
-      it 'does not raise' do
-        expect { described_class.new.run }.not_to raise_error
-      end
+      it 'prunes all eligible tables' do
+        result = described_class.new.run
 
-      it 'does not log a warning' do
-        described_class.new.run
-
-        expect(output).not_to have_received(:warning)
+        expect(result[:tables]).to eq({ 'users' => 10, 'logs' => 50 })
       end
     end
   end

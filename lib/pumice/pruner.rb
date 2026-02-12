@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
 module Pumice
-  class PruningConflictError < StandardError; end
-
   # Prunes records from tables based on global configuration.
   # Runs as a standalone phase before sanitization to reduce dataset size.
+  #
+  # Tables where a sanitizer defines its own `prune` are skipped —
+  # the sanitizer-level prune overrides global pruning for that table.
   #
   # Configuration:
   #   Pumice.configure do |config|
@@ -13,7 +14,6 @@ module Pumice
   #       column: :created_at,
   #       only: %w[ifl_voice_logs debug_logs],  # OR
   #       except: %w[users messages],
-  #       on_conflict: :warn            # :warn, :raise, or :rollback
   #     }
   #   end
   class Pruner
@@ -32,7 +32,6 @@ module Pumice
       cutoff = resolve_cutoff(age)
 
       log_header(direction, age)
-      check_conflicts!(pruning_config)
 
       tables_to_prune.each do |table_name|
         count = ActiveRecord::Base.transaction(requires_new: true) do
@@ -68,8 +67,29 @@ module Pumice
     end
 
     def tables_to_prune
+      overridden = sanitizer_pruned_tables
+
       ActiveRecord::Base.connection.tables.select do |table|
-        Pumice.prune_table?(table)
+        next false unless Pumice.prune_table?(table)
+
+        if overridden.include?(table)
+          Pumice::Logger.log_progress("  #{table}: skipped (sanitizer defines its own prune)")
+          next false
+        end
+
+        true
+      end
+    end
+
+    def sanitizer_pruned_tables
+      Pumice.sanitizers.each_with_object(Set.new) do |sanitizer, set|
+        next unless sanitizer.prune_operation
+
+        begin
+          set << sanitizer.model_class.table_name
+        rescue StandardError
+          next
+        end
       end
     end
 
@@ -103,45 +123,6 @@ module Pumice
     rescue ActiveRecord::InvalidForeignKey
       Pumice::Logger.log_progress("  #{table_name}: skipped (has foreign key dependencies)")
       0
-    end
-
-    def check_conflicts!(pruning_config)
-      conflicts = detect_conflicts
-      return if conflicts.empty?
-
-      on_conflict = pruning_config[:on_conflict]
-
-      conflicts.each do |table_name, sanitizer_class|
-        message = "Global pruning and #{sanitizer_class.name} both declare pruning for '#{table_name}'. " \
-                  "The global pruner runs first, then the sanitizer's prune runs on survivors."
-
-        case on_conflict
-        when :raise
-          raise PruningConflictError, message
-        when :rollback
-          raise ActiveRecord::Rollback, message
-        else
-          Pumice::Logger.output.warning("CONFLICT: #{message}")
-        end
-      end
-    end
-
-    def detect_conflicts
-      prunable_tables = tables_to_prune
-      conflicts = {}
-
-      Pumice.sanitizers.each do |sanitizer|
-        next unless sanitizer.prune_operation
-
-        begin
-          table = sanitizer.model_class.table_name
-          conflicts[table] = sanitizer if prunable_tables.include?(table)
-        rescue StandardError
-          next
-        end
-      end
-
-      conflicts
     end
 
     def log_header(direction, age)
