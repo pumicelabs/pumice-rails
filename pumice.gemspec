@@ -6,11 +6,11 @@ Gem::Specification.new do |spec|
   spec.name          = "pumice"
   spec.version       = Pumice::VERSION
   spec.authors       = ["Chapter One NFP", "Adam Cuppy"]
-  spec.email         = ["dev@chapterone.org"]
+  spec.email         = ["oss@chapterone.org"]
   spec.summary       = "Database PII sanitization for Rails"
   spec.description   = "Declarative sanitizer DSL for scrubbing, pruning, and " \
                         "safely exporting PII-free database copies."
-  spec.homepage      = "https://github.com/innovationsforlearning/pumice"
+  spec.homepage      = "https://github.com/pumicelabs/pumice-rails"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.0"
 
