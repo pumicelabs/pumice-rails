@@ -149,10 +149,10 @@ scrub(:email)      { fake_email(record, domain: 'test.example') }
 
 ### `keep(*columns)`
 
-Mark columns as non-PII. No changes applied.
+Mark columns as non-PII. No changes applied. *Note: `id`, `created_at`, and `updated_at` are kept automatically — you never need to declare them.*
 
 ```ruby
-keep :id, :created_at, :updated_at, :role, :status
+keep :role, :status
 ```
 
 ### `keep_undefined_columns!`
@@ -285,10 +285,7 @@ Post-operation checks declared inside a sanitizer definition. All verification r
 
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
-  sanitizes :users
-
   scrub(:email) { Faker::Internet.email }
-  keep :id, :created_at, :updated_at
 
   verify_all "No real emails should remain" do
     where("email LIKE '%@gmail.com'").none?
@@ -302,10 +299,7 @@ The `verify_all` block runs in model scope (`User.instance_exec`). Return truthy
 
 ```ruby
 class UserSanitizer < Pumice::Sanitizer
-  sanitizes :users
-
   scrub(:email) { Faker::Internet.email }
-  keep :id, :created_at, :updated_at
 
   verify_each "Email should be scrubbed" do |record|
     !record.email.match?(/gmail|yahoo|hotmail/)
