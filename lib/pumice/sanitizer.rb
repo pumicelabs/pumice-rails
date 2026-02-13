@@ -126,20 +126,25 @@ module Pumice
       end
 
       def run_record_sanitization
-        total = model_class.count
-        progress = Pumice::Progress.new(title: model_class.name, total: total)
-        count = 0
-        model_class.find_each do |record|
+        scope = scrub_scope
+        Pumice::Progress.each(scope.find_each, model_class.name, total: scope.count) do |record|
           scrub!(record)
           run_record_verification(record) unless Pumice.dry_run?
-          count += 1
-          progress.increment
         rescue => e
           logger.log_error(name, e)
           raise unless Pumice.config.continue_on_error
         end
-        progress.finish
-        count
+      end
+
+      # In dry-run mode with a prune operation, exclude records that would
+      # have been pruned so the progress bar and count are accurate.
+      def scrub_scope
+        if Pumice.dry_run? && prune_operation
+          prune_scope = model_class.instance_exec(&prune_operation[:scope])
+          model_class.where.not(id: prune_scope.select(:id))
+        else
+          model_class.all
+        end
       end
 
       def run_record_verification(record)
