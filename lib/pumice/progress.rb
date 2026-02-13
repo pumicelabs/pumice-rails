@@ -30,13 +30,22 @@ module Pumice
     #     s.scrub_all!
     #   end
     #
-    def self.each(collection, title, output: $stdout)
-      progress = new(title: title, total: collection.size, output: output)
+    # Pass total: for enumerators that don't respond to #size (e.g. find_each):
+    #
+    #   Pumice::Progress.each(scope.find_each, "Model", total: scope.count) do |record|
+    #     record.update!(...)
+    #   end
+    #
+    def self.each(collection, title, total: collection.size, output: $stdout)
+      count = 0
+      progress = new(title: title, total: total, output: output)
       collection.each do |item|
         yield item
+        count += 1
         progress.increment
       end
       progress.finish
+      count
     end
   end
 end
