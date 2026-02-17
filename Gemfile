@@ -10,3 +10,10 @@ group :test do
   gem "database_cleaner-active_record"
   gem "sqlite3"
 end
+
+group :development do
+  gem "rubocop"
+  gem "rubocop-rails"
+  gem "rubocop-rspec"
+  gem "bundler-audit"
+end
