@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec::Matchers.define :have_scrubbed do |attr_name|
   match do |sanitizer_class|
     sanitizer_class.scrubbed_column?(attr_name)

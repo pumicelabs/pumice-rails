@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.configure do |config|
   # Auto-tag specs in spec/sanitizers/ as type: :sanitizer
   config.define_derived_metadata(file_path: %r{/spec/sanitizers/}) do |metadata|
@@ -20,7 +22,7 @@ RSpec.configure do |config|
     issues = described_class.lint!
     if issues.any?
       raise Pumice::UndefinedAttributeError,
-        "#{described_class.name} has incomplete column coverage:\n  #{issues.join("\n  ")}"
+            "#{described_class.name} has incomplete column coverage:\n  #{issues.join("\n  ")}"
     end
   end
 

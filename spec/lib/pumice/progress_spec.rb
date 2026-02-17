@@ -105,14 +105,14 @@ RSpec.describe Pumice::Progress do
     end
 
     it 'returns the count of items processed' do
-      count = described_class.each(%w[a b c], title: "Test", output: io) { |_| }
+      count = described_class.each(%w[a b c], title: "Test", output: io) { next }
 
       expect(count).to eq(3)
     end
 
     it 'accepts a custom total for enumerators' do
       enumerator = %w[a b c].each
-      count = described_class.each(enumerator, title: "Test", total: 3, output: io) { |_| }
+      count = described_class.each(enumerator, title: "Test", total: 3, output: io) { next }
 
       expect(count).to eq(3)
     end
