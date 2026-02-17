@@ -17,14 +17,18 @@ module Pumice
   #     }
   #   end
   class Pruner
-    attr_reader :stats
+    Stats  = Struct.new(:total, :tables, keyword_init: true)
+
+    attr_reader :config, :stats, :logger
 
     def initialize
-      @stats = { total: 0, tables: {} }
+      @config = Pumice.config.pruning
+      @stats  = Stats.new(total: 0, tables: {})
+      @logger = Pumice::Logger
     end
 
     def run
-      return @stats unless Pumice.pruning_enabled?
+      return stats unless Pumice.pruning_enabled?
 
       pruning_config = Pumice.config.pruning
       column = pruning_config[:column]
@@ -33,17 +37,17 @@ module Pumice
 
       log_header(direction, age)
 
-      Pumice::Progress.each(tables_to_prune, "Pruning") do |table_name|
+      Pumice::Progress.each(tables_to_prune, title: "Pruning") do |table_name|
         count = ActiveRecord::Base.transaction(requires_new: true) do
           prune_table(table_name, column, cutoff, direction)
         end
-        @stats[:tables][table_name] = count if count > 0
-        @stats[:total] += count
+        stats.tables[table_name] = count if count > 0
+        stats.total += count
       end
 
       log_footer
 
-      @stats
+      stats
     end
 
     private
@@ -134,7 +138,7 @@ module Pumice
     end
 
     def log_footer
-      if @stats[:total] > 0 || @stats[:tables].any?
+      if stats.total > 0 || stats.tables.any?
         Pumice::Logger.output.success("Pruning complete: #{@stats[:total]} records from #{@stats[:tables].size} table(s)")
       else
         Pumice::Logger.output.line("  No records matched pruning criteria")
