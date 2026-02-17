@@ -33,6 +33,8 @@ module Pumice
       pruning_config = Pumice.config.pruning
       column = pruning_config[:column]
       direction, age = resolve_direction(pruning_config)
+      column = config[:column]
+      direction, age = resolve_direction(config)
       cutoff = resolve_cutoff(age)
 
       log_header(direction, age)
@@ -77,7 +79,7 @@ module Pumice
         next false unless Pumice.prune_table?(table)
 
         if overridden.include?(table)
-          Pumice::Logger.log_progress("  #{table}: skipped (sanitizer defines its own prune)")
+          logger.log_progress("  #{table}: skipped (sanitizer defines its own prune)")
           next false
         end
 
@@ -112,12 +114,12 @@ module Pumice
 
       if Pumice.dry_run?
         count = scope.count
-        Pumice::Logger.log_progress("  #{table_name}: would prune #{count} records") if count > 0
+        logger.log_progress("  #{table_name}: would prune #{count} records") if count > 0
         return count
       end
 
       count = scope.delete_all
-      Pumice::Logger.log_progress("  #{table_name}: pruned #{count} records") if count > 0
+      logger.log_progress("  #{table_name}: pruned #{count} records") if count > 0
       count
     rescue NameError
       0
@@ -125,23 +127,23 @@ module Pumice
       # Table doesn't exist in database (model constant exists but table was dropped/never created)
       0
     rescue ActiveRecord::InvalidForeignKey
-      Pumice::Logger.log_progress("  #{table_name}: skipped (has foreign key dependencies)")
+      logger.log_progress("  #{table_name}: skipped (has foreign key dependencies)")
       0
     end
 
     def log_header(direction, age)
       label = direction == :older_than ? 'older' : 'newer'
-      Pumice::Logger.output.blank
-      Pumice::Logger.output.line('Global Pruning', emoji: '✂️')
-      Pumice::Logger.output.line("  Removing records #{label} than #{format_duration(age)}")
-      Pumice::Logger.output.line("  #{Pumice.dry_run? ? '[DRY RUN]' : '[LIVE]'}")
+      logger.output.blank
+      logger.output.line('Global Pruning', emoji: '✂️')
+      logger.output.line("  Removing records #{label} than #{format_duration(age)}")
+      logger.output.line("  #{Pumice.dry_run? ? '[DRY RUN]' : '[LIVE]'}")
     end
 
     def log_footer
       if stats.total > 0 || stats.tables.any?
-        Pumice::Logger.output.success("Pruning complete: #{@stats[:total]} records from #{@stats[:tables].size} table(s)")
+        logger.output.success("Pruning complete: #{stats.total} records from #{stats.tables.size} table(s)")
       else
-        Pumice::Logger.output.line("  No records matched pruning criteria")
+        logger.output.line("  No records matched pruning criteria")
       end
     end
 

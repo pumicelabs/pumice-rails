@@ -15,7 +15,8 @@ RSpec.describe Pumice::Pruner do
     it 'initializes stats with zero totals' do
       pruner = described_class.new
 
-      expect(pruner.stats).to eq({ total: 0, tables: {} })
+      expect(pruner.stats.total).to eq(0)
+      expect(pruner.stats.tables).to eq({})
     end
   end
 
@@ -30,7 +31,8 @@ RSpec.describe Pumice::Pruner do
 
         result = pruner.run
 
-        expect(result).to eq({ total: 0, tables: {} })
+        expect(result.total).to eq(0)
+        expect(result.tables).to eq({})
       end
 
       it 'does not query database tables' do
@@ -260,7 +262,8 @@ RSpec.describe Pumice::Pruner do
 
         result = described_class.new.run
 
-        expect(result).to eq({ total: 0, tables: {} })
+        expect(result.total).to eq(0)
+        expect(result.tables).to eq({})
       end
     end
 
