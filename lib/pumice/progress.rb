@@ -26,17 +26,17 @@ module Pumice
 
     # Block-based API for iterating a collection with progress.
     #
-    #   Pumice::Progress.each(sanitizers, "Sanitizers") do |s|
+    #   Pumice::Progress.each(sanitizers, title: "Sanitizers") do |s|
     #     s.scrub_all!
     #   end
     #
     # Pass total: for enumerators that don't respond to #size (e.g. find_each):
     #
-    #   Pumice::Progress.each(scope.find_each, "Model", total: scope.count) do |record|
+    #   Pumice::Progress.each(scope.find_each, title: "Model", total: scope.count) do |record|
     #     record.update!(...)
     #   end
     #
-    def self.each(collection, title, total: collection.size, output: $stdout)
+    def self.each(collection, title:, total: collection.size, output: $stdout)
       count = 0
       progress = new(title: title, total: total, output: output)
       collection.each do |item|
