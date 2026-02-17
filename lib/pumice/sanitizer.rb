@@ -127,7 +127,7 @@ module Pumice
 
       def run_record_sanitization
         scope = scrub_scope
-        Pumice::Progress.each(scope.find_each, model_class.name, total: scope.count) do |record|
+        Pumice::Progress.each(scope.find_each, title: model_class.name, total: scope.count) do |record|
           scrub!(record)
           run_record_verification(record) unless Pumice.dry_run?
         rescue => e
