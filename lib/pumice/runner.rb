@@ -51,7 +51,7 @@ module Pumice
     end
 
     def run_sanitizers(sanitizers)
-      Pumice::Progress.each(sanitizers, "Sanitizers", &:scrub_all!)
+      Pumice::Progress.each(sanitizers, title: "Sanitizers", &:scrub_all!)
     end
 
     def resolve_sanitizers(names)
